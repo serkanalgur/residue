@@ -43,27 +43,10 @@ export interface RegisterDeps {
   readonly lastInjection: { factCount: number; charCount: number };
 }
 
-/** Minimal ctx.tool.transform editor shape. */
-interface ToolEditor {
-  namespace(config: { name: string; description: string }): void;
-  add(config: {
-    name: string;
-    description: string;
-    input: unknown;
-    options?: { namespace?: string };
-    execute: (input: Record<string, unknown>, context: unknown) => Promise<{ content: string; metadata?: Record<string, unknown> }>;
-  }): void;
-}
+import { Plugin } from "@opencode/plugin";
 
-/** Minimal ctx.tool.transform callback shape. */
-type TransformCallback = (editor: ToolEditor) => void | Promise<void>;
-
-/** Minimal plugin context shape for tool registration. */
-interface ToolTransformCtx {
-  tool: {
-    transform(cb: TransformCallback): Promise<void>;
-  };
-}
+/** Minimal plugin context shape for tool registration — uses the real Context type. */
+type ToolTransformCtx = Pick<Plugin.Context, "tool">;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,7 +93,7 @@ export async function registerTools(
     // Set up the "res" namespace
     editor.namespace({
       name: "res",
-      description: "Kalici proje bellegi: arama, kaydetme, durum.",
+      description: "Persistent project memory: search, store, status.",
     });
 
     // --- res_status ---
@@ -186,13 +169,14 @@ export async function registerTools(
       input: ADD_TOOL_SCHEMA,
       options: { namespace: "res" },
       execute: async (input, context) => {
+        const tc = context as { readonly sessionID?: string };
         const addDeps: AddDeps = {
           store: deps.store,
           embedder: deps.embedder,
           resolved: deps.resolved,
           options,
           logger,
-          sessionID: "manual",
+          sessionID: tc.sessionID ?? "manual",
           messageID: undefined,
         };
 

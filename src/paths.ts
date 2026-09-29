@@ -8,7 +8,7 @@
  * @module paths
  */
 
-import { homedir, tmpdir, platform } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -72,6 +72,9 @@ export interface ResolvedPaths {
  * 1. `<projectDir>/.opencode/residue/` (warns about repo-internal writes)
  * 2. Falls back to XDG chain above if not writable
  *
+ * @param projectDir - Project directory from ctx.location.project.directory.
+ *   In a monorepo, or when OpenCode is launched from elsewhere, this is
+ *   the canonical project root, NOT process.cwd().
  * @param options - Plugin options (dataDir setting).
  * @param projectID - Unique project identifier for database naming.
  * @param env - Injectable environment (defaults to production).
@@ -81,12 +84,13 @@ export interface ResolvedPaths {
 export async function resolveDataDir(
   options: { dataDir: string },
   projectID: string,
+  projectDir: string,
   env: Env = NODE_ENV,
   warn: (msg: string) => void = console.warn,
 ): Promise<ResolvedPaths> {
   if (options.dataDir === "project") {
-    // Project-local resolution — warns about writing into repo
-    const projectBase = join(process.cwd(), ".opencode", "residue");
+    // Project-local resolution — uses ctx.location.project.directory
+    const projectBase = join(projectDir, ".opencode", "residue");
     if (await env.isWritable(projectBase) || await ensureDir(projectBase, env)) {
       warn(
         `[residue] Writing data into project directory (.opencode/residue/). ` +

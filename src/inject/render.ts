@@ -21,6 +21,7 @@
 
 import type { SearchHit } from "../core/types.js";
 import type { SystemPart } from "@opencode/ai";
+import { truncateAtSentence } from "../util/truncate.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -181,31 +182,4 @@ function formatLine(hit: SearchHit): string {
   const ref = record.source.sessionID.slice(0, 12);
   const conf = hit.score.toFixed(2);
   return `- [${kind}] ${record.content} (src: ${record.source.sessionID}:${ref}, conf: ${conf})`;
-}
-
-/**
- * Truncate text at the last sentence boundary that fits within maxLen.
- */
-function truncateAtSentence(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-
-  const truncated = text.slice(0, maxLen);
-
-  const lastSentence = Math.max(
-    truncated.lastIndexOf(". "),
-    truncated.lastIndexOf("! "),
-    truncated.lastIndexOf("? "),
-  );
-
-  if (lastSentence > maxLen * 0.3) {
-    return truncated.slice(0, lastSentence + 1).trimEnd();
-  }
-
-  const lastSpace = truncated.lastIndexOf(" ");
-  if (lastSpace > maxLen * 0.3) {
-    const base = truncated.slice(0, lastSpace).trimEnd();
-    return base.length + 3 <= maxLen ? base + "..." : base.slice(0, maxLen - 3) + "...";
-  }
-
-  return truncated.slice(0, maxLen - 3).trimEnd() + "...";
 }

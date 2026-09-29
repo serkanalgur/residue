@@ -11,7 +11,7 @@ import type { MemoryStore } from "../core/ports.js";
 import type { Logger } from "../log.js";
 import type { ResolvedPaths } from "../paths.js";
 import type { ResidueOptions } from "../config.js";
-import { probeDriver } from "./sqlite/driver.js";
+import { probeDriver, type SqliteDatabase } from "./sqlite/driver.js";
 import { SqliteStore } from "./sqlite/store.js";
 import { acquireLock } from "./sqlite/lock.js";
 import { InMemoryStore } from "./memory-store.js";
@@ -60,7 +60,7 @@ export async function createStore(
   }
 
   // Open the database
-  let db;
+  let db: SqliteDatabase;
   try {
     db = driverResult.factory(paths.projectDb);
   } catch (err) {

@@ -4,7 +4,7 @@
  * @module core/ports
  */
 
-import type { MemoryDraft, MemoryRecord, SearchHit, Scope } from "./types.js";
+import type { MemoryDraft, MemoryRecord, SearchHit } from "./types.js";
 
 /** Scope predicate parameters for SQL WHERE clauses. */
 export interface ScopePredicate {

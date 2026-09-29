@@ -8,7 +8,6 @@
  */
 
 import type { MemoryStore, Embedder, ScopePredicate } from "../core/ports.js";
-import type { MemoryKind, Scope } from "../core/types.js";
 import type { ResolvedScope } from "../core/ports.js";
 import type { Logger } from "../log.js";
 import { buildScopePredicate, type ScopeFilter } from "../scope.js";

@@ -4,7 +4,7 @@
  * @module ingest/types
  */
 
-import type { MemoryKind, MemoryDraft, SourceRef } from "../core/types.js";
+import type { MemoryDraft } from "../core/types.js";
 
 /** Raw extraction item from the LLM (before validation and draft building). */
 export interface RawExtraction {
@@ -82,5 +82,5 @@ export interface IngestDeps {
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string };
   }) => Promise<{ readonly text: string }>;
   /** Default model getter from plugin context. */
-  readonly defaultModel: () => { readonly id: string; readonly providerID: string; readonly variant?: string };
+  readonly defaultModel: () => { readonly id: string; readonly providerID: string; readonly variant?: string } | Promise<{ readonly id: string; readonly providerID: string; readonly variant?: string }>;
 }

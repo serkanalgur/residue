@@ -34,9 +34,10 @@
  * @module inject/context-hook
  */
 
+import type { Plugin } from "@opencode/plugin";
 import type { SessionContext } from "@opencode/plugin/promise/session";
 import type { SystemPart } from "@opencode/ai";
-import type { MemoryStore, Embedder, ResolvedEmbedder, ResolvedScope } from "../core/ports.js";
+import type { MemoryStore, ResolvedEmbedder, ResolvedScope } from "../core/ports.js";
 import type { ResidueOptions } from "../config.js";
 import type { Logger } from "../log.js";
 import { hybridSearch } from "../retrieval/search.js";
@@ -84,15 +85,7 @@ const CHANNEL_MULTIPLIER = 3;
  * @returns Cleanup function that disposes the hook registration.
  */
 export function registerContextHook(
-  ctx: {
-    session: {
-      hook: (
-        name: string,
-        callback: (event: SessionContext) => Promise<void> | void,
-        options?: { providerID?: string },
-      ) => Promise<{ dispose: () => Promise<void> }>;
-    };
-  },
+  ctx: Pick<Plugin.Context, "session">,
   deps: ContextHookDeps,
   options: ResidueOptions,
   logger: Logger,
@@ -127,10 +120,14 @@ export function registerContextHook(
     hookOptions,
   );
 
-  // Start the async registration (fire-and-forget for the promise)
+  // Hold the registration promise — if cleanup runs before it resolves,
+  // dispose immediately when the promise settles (race-condition guard).
   hookRegistration.then(
     (reg) => {
-      if (!disposed) {
+      if (disposed) {
+        // Cleanup already ran before registration settled — dispose now
+        void reg.dispose().catch(() => {});
+      } else {
         disposeHook = reg.dispose;
       }
     },
@@ -145,7 +142,11 @@ export function registerContextHook(
 
   return () => {
     disposed = true;
-    disposeHook?.()?.catch?.(() => {});
+    if (disposeHook !== null) {
+      void disposeHook().catch(() => {});
+    }
+    // If disposeHook is still null, the then() handler above will dispose
+    // when the promise settles.
   };
 }
 

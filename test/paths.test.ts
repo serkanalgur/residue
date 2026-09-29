@@ -32,7 +32,7 @@ describe("resolveDataDir", () => {
     env.env = (name: string) => (name === "XDG_DATA_HOME" ? "/custom/xdg" : undefined);
     env.writableDirs.add("/custom/xdg/residue");
 
-    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-123", env);
+    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-123", "/my/project", env);
     expect(paths.base).toBe("/custom/xdg/residue");
     expect(paths.globalDb).toContain("global.db");
     expect(paths.projectDb).toContain("project-proj-123.db");
@@ -42,7 +42,7 @@ describe("resolveDataDir", () => {
     const env = createMockEnv();
     env.writableDirs.add("/home/testuser/.local/share/residue");
 
-    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-456", env);
+    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-456", "/my/project", env);
     expect(paths.base).toBe("/home/testuser/.local/share/residue");
   });
 
@@ -51,31 +51,25 @@ describe("resolveDataDir", () => {
     // Ensure mkdir succeeds for tmpdir
     env.writableDirs.add("/tmp/residue");
 
-    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-789", env);
+    const paths = await resolveDataDir({ dataDir: "xdg" }, "proj-789", "/my/project", env);
     expect(paths.base).toBe("/tmp/residue");
   });
 
   it("uses project dir when dataDir=project and writable", async () => {
     const warnings: string[] = [];
     const env = createMockEnv();
+    const projectDir = "/my/project";
+    env.writableDirs.add(`${projectDir}/.opencode/residue`);
 
-    // Mock process.cwd() for project resolution — use the env's isWritable
-    const originalCwd = process.cwd;
-    process.cwd = () => "/my/project";
-    env.writableDirs.add("/my/project/.opencode/residue");
-
-    try {
-      const paths = await resolveDataDir(
-        { dataDir: "project" },
-        "proj-proj",
-        env,
-        (msg: string) => warnings.push(msg),
-      );
-      expect(paths.base).toBe("/my/project/.opencode/residue");
-      expect(warnings.some((w) => w.includes("project directory"))).toBe(true);
-    } finally {
-      process.cwd = originalCwd;
-    }
+    const paths = await resolveDataDir(
+      { dataDir: "project" },
+      "proj-proj",
+      projectDir,
+      env,
+      (msg: string) => warnings.push(msg),
+    );
+    expect(paths.base).toBe(`${projectDir}/.opencode/residue`);
+    expect(warnings.some((w) => w.includes("project directory"))).toBe(true);
   });
 
   it("warns about temp directory usage", async () => {
@@ -86,6 +80,7 @@ describe("resolveDataDir", () => {
     await resolveDataDir(
       { dataDir: "xdg" },
       "proj-temp",
+      "/my/project",
       env,
       (msg: string) => warnings.push(msg),
     );

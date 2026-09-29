@@ -12,6 +12,7 @@
  */
 
 import type { SqliteDatabase } from "./driver.js";
+import { l2Normalize as _l2Normalize, cosine } from "../../embed/normalize.js";
 
 // ---------------------------------------------------------------------------
 // BLOB encode / decode
@@ -19,6 +20,9 @@ import type { SqliteDatabase } from "./driver.js";
 
 /**
  * Encode a Float32Array as a Buffer (BLOB) for SQLite storage.
+ *
+ * NOTE: This is intentionally different from normalize.ts's `encodeFloat32`
+ * which includes a length prefix header. Vectors use raw bytes in SQLite.
  *
  * @param vec - Float32 vector to encode.
  * @returns Buffer containing the raw float32 bytes.
@@ -39,58 +43,22 @@ export function decodeVec(blob: Buffer): Float32Array {
 }
 
 // ---------------------------------------------------------------------------
-// Vector math
+// Vector math (delegated to canonical embed/normalize.ts)
 // ---------------------------------------------------------------------------
 
 /**
- * L2-normalize a vector in place.
- *
- * If the vector is all zeros or has zero norm, returns the vector unchanged.
- *
- * @param vec - Vector to normalize.
- * @returns The same vector, normalized.
+ * L2-normalize a vector in place. Delegates to canonical implementation.
  */
 export function l2Normalize(vec: Float32Array): Float32Array {
-  let sumSq = 0;
-  for (let i = 0; i < vec.length; i++) {
-    const v = vec[i]!;
-    sumSq += v * v;
-  }
-  const norm = Math.sqrt(sumSq);
-  if (norm === 0) return vec;
-  for (let i = 0; i < vec.length; i++) {
-    vec[i] = vec[i]! / norm;
-  }
-  return vec;
+  return _l2Normalize(vec);
 }
 
 /**
  * Compute cosine similarity between two vectors.
- *
- * Both vectors should be L2-normalized for best results. If they are not,
- * the function normalizes them internally (less efficient).
- *
- * @param a - First vector.
- * @param b - Second vector (must be same length as a).
- * @returns Cosine similarity in [-1, 1].
- * @throws If vectors have different lengths.
+ * Delegates to canonical implementation.
  */
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length) {
-    throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);
-  }
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    const av = a[i]!;
-    const bv = b[i]!;
-    dot += av * bv;
-    normA += av * av;
-    normB += bv * bv;
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
+  return cosine(a, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +179,48 @@ function findNearestCentroids(
 }
 
 // ---------------------------------------------------------------------------
+// IVF-lite cache
+// ---------------------------------------------------------------------------
+
+/** Cached IVF index for a single table. */
+interface CachedIVF {
+  /** Centroid vectors from k-means. */
+  readonly centroids: Float32Array[];
+  /** Reverse index: centroid index → vector indices. */
+  readonly reverseIndex: Map<number, number[]>;
+  /** Vector data (normalized) for scoring. */
+  readonly vectors: Float32Array[];
+  /** Vector IDs. */
+  readonly ids: string[];
+  /** Row count at time of index build (invalidation key). */
+  readonly rowCount: number;
+}
+
+/** Module-level IVF cache, keyed by table name. */
+const ivfCache = new Map<string, CachedIVF>();
+
+/**
+ * Invalidate the cached IVF index for a table.
+ *
+ * Called by SqliteStore after insert/delete to ensure the next
+ * vectorSearch builds a fresh index.
+ *
+ * @param tableName - Table whose cache to invalidate.
+ */
+export function invalidateVectorCache(tableName: string): void {
+  ivfCache.delete(tableName);
+}
+
+/**
+ * Get the current cache generation counter (for testing).
+ * Returns the total number of cache invalidations across all tables.
+ */
+let cacheGeneration = 0;
+export function getCacheGeneration(): number {
+  return cacheGeneration;
+}
+
+// ---------------------------------------------------------------------------
 // Vector search
 // ---------------------------------------------------------------------------
 
@@ -305,48 +315,53 @@ export function vectorSearch(
   // L2-normalize query
   const qNorm = l2Normalize(new Float32Array(query));
 
-  // Build vectors array
-  const vectors: Float32Array[] = rows.map((r) => l2Normalize(decodeVec(r.v)));
-  const ids: string[] = rows.map((r) => r.memory_id);
+  // Check cache — reuse if row count unchanged
+  let cached = ivfCache.get(tableName);
+  if (cached === undefined || cached.rowCount !== rows.length) {
+    // Build vectors array
+    const vectors: Float32Array[] = rows.map((r) => l2Normalize(decodeVec(r.v)));
+    const ids: string[] = rows.map((r) => r.memory_id);
 
-  // Build IVF-lite index
-  const actualK = Math.min(NUM_CENTROIDS, vectors.length);
-  const centroids = kMeans(vectors, actualK);
+    // Build IVF-lite index
+    const actualK = Math.min(NUM_CENTROIDS, vectors.length);
+    const centroids = kMeans(vectors, actualK);
 
-  // Find nearest centroids
-  const nearestCentroidIdx = findNearestCentroids(qNorm, centroids, Math.min(NPROBE, actualK));
-  const centroidSet = new Set(nearestCentroidIdx);
-
-  // Build reverse index: centroid -> vector indices
-  const reverseIndex: Map<number, number[]> = new Map();
-  for (let i = 0; i < vectors.length; i++) {
-    // Find closest centroid for this vector
-    let bestC = 0;
-    let bestD = Infinity;
-    for (let c = 0; c < centroids.length; c++) {
-      const d = euclideanDistSq(vectors[i]!, centroids[c]!);
-      if (d < bestD) {
-        bestD = d;
-        bestC = c;
+    // Build reverse index: centroid -> vector indices
+    const reverseIndex: Map<number, number[]> = new Map();
+    for (let i = 0; i < vectors.length; i++) {
+      let bestC = 0;
+      let bestD = Infinity;
+      for (let c = 0; c < centroids.length; c++) {
+        const d = euclideanDistSq(vectors[i]!, centroids[c]!);
+        if (d < bestD) {
+          bestD = d;
+          bestC = c;
+        }
+      }
+      const bucket = reverseIndex.get(bestC);
+      if (bucket) {
+        bucket.push(i);
+      } else {
+        reverseIndex.set(bestC, [i]);
       }
     }
-    const bucket = reverseIndex.get(bestC);
-    if (bucket) {
-      bucket.push(i);
-    } else {
-      reverseIndex.set(bestC, [i]);
-    }
+
+    cached = { centroids, reverseIndex, vectors, ids, rowCount: rows.length };
+    ivfCache.set(tableName, cached);
   }
+
+  // Find nearest centroids
+  const nearestCentroidIdx = findNearestCentroids(qNorm, cached.centroids, Math.min(NPROBE, cached.centroids.length));
 
   // Score only vectors in nearest centroids
   const scored: VecSearchHit[] = [];
   for (const cIdx of nearestCentroidIdx) {
-    const bucket = reverseIndex.get(cIdx);
+    const bucket = cached.reverseIndex.get(cIdx);
     if (!bucket) continue;
     for (const vIdx of bucket) {
       scored.push({
-        memoryId: ids[vIdx]!,
-        score: cosineSimilarity(qNorm, vectors[vIdx]!),
+        memoryId: cached.ids[vIdx]!,
+        score: cosineSimilarity(qNorm, cached.vectors[vIdx]!),
       });
     }
   }
@@ -374,6 +389,9 @@ export function storeVector(
     `INSERT OR REPLACE INTO ${tableName} (memory_id, v) VALUES (?, ?)`,
     [memoryId, encodeVec(l2Normalize(new Float32Array(vec)))],
   );
+  // Invalidate IVF cache — row count changed
+  invalidateVectorCache(tableName);
+  cacheGeneration++;
 }
 
 /**
@@ -389,4 +407,7 @@ export function deleteVector(
   memoryId: string,
 ): void {
   db.run(`DELETE FROM ${tableName} WHERE memory_id = ?`, [memoryId]);
+  // Invalidate IVF cache — row count changed
+  invalidateVectorCache(tableName);
+  cacheGeneration++;
 }

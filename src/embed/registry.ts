@@ -23,7 +23,7 @@
  * @module embed/registry
  */
 
-import type { Embedder, ResolvedEmbedder } from "../core/ports.js";
+import type { ResolvedEmbedder } from "../core/ports.js";
 import type { ResidueOptions } from "../config.js";
 import type { Logger } from "../log.js";
 import { createRemoteEmbedder } from "./remote.js";

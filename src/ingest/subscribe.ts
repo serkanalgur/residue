@@ -1,8 +1,9 @@
 /**
  * Ingestion subscription — wires session events to the extraction pipeline.
  *
- * Listens for `session.idle` events (and optionally `session.compaction.ended`)
- * and triggers memory extraction from the session transcript.
+ * Listens for `session.text.delta` events (to feed the turn buffer) and
+ * `session.idle` events (to trigger memory extraction from the session
+ * transcript).
  *
  * ## Anti-Feedback Loop (CRITICAL)
  *
@@ -30,10 +31,15 @@
  * event system issues are caught, logged, and silently skipped. Memory
  * extraction is best-effort — it must never break the user experience.
  *
+ * ## API Correctness (V2)
+ *
+ * `ctx.event.subscribe()` returns an `AsyncIterable<V2Event>`, NOT an
+ * object with `.on()`. We iterate with `for await` and match on `event.type`.
+ * Unsubscription is via `AbortSignal.abort()` on the signal passed to subscribe.
+ *
  * @module ingest/subscribe
  */
 
-import type { MemoryDraft, SourceRef } from "../core/types.js";
 import type { Logger } from "../log.js";
 import type { TurnBuffer } from "./buffer.js";
 import type { IngestOptions, IngestDeps } from "./types.js";
@@ -46,9 +52,7 @@ import { extractMemories } from "./extractor.js";
 /** Minimal plugin context shape for event subscription. */
 export interface EventSubscribeCtx {
   event: {
-    subscribe: (opts: { signal?: AbortSignal }) => {
-      on: (eventType: string, handler: (payload: unknown) => void) => void;
-    };
+    subscribe: (opts: { signal?: AbortSignal }) => AsyncIterable<{ readonly type: string; readonly data?: Record<string, unknown> }>;
   };
 }
 
@@ -104,15 +108,17 @@ interface SessionExtractionState {
 /**
  * Register the ingestion pipeline.
  *
- * Subscribes to `session.idle` events and triggers memory extraction.
- * Returns a cleanup function that unsubscribes all listeners.
+ * Subscribes to session events via `ctx.event.subscribe()` (AsyncIterable).
+ * Feeds `session.text.delta` events into the turn buffer, and triggers
+ * memory extraction on `session.idle` events.
+ *
+ * Returns a cleanup function that aborts the event subscription and clears state.
  *
  * @param ctx - Plugin context (for event subscription and session access).
  * @param deps - Injected dependencies (buffer, store, model, scope).
  * @param options - Ingestion configuration.
  * @param logger - Logger instance.
  * @param extractFn - Extract function (injectable for testing).
- * @param signal - Optional abort signal for cleanup.
  * @returns Cleanup function.
  */
 export function registerIngestion(
@@ -121,10 +127,11 @@ export function registerIngestion(
   options: IngestOptions,
   logger: Logger,
   extractFn: typeof extractMemories = extractMemories,
-  signal?: AbortSignal,
 ): () => void {
   // Anti-feedback loop state: per-session extraction tracking
   const sessionStates = new Map<string, SessionExtractionState>();
+  // Track disposed state for the subscription loop
+  let disposed = false;
 
   function getState(sessionID: string): SessionExtractionState {
     let state = sessionStates.get(sessionID);
@@ -135,23 +142,55 @@ export function registerIngestion(
     return state;
   }
 
-  // Subscribe to events
-  const subscription = ctx.event.subscribe({ signal });
+  // Create an AbortSignal for subscription lifecycle
+  const ac = new AbortController();
 
-  // Handler for session.idle events
-  const handleIdle = (payload: unknown): void => {
-    // Schedule on next tick — NEVER block the user
-    setTimeout(() => {
-      void handleIdleAsync(payload).catch((err) => {
-        // CRITICAL: idle handler NEVER throws
+  // Subscribe to events using AsyncIterable (V2 API)
+  const subscription = ctx.event.subscribe({ signal: ac.signal });
+
+  // Run the subscription loop in the background
+  void (async () => {
+    try {
+      for await (const event of subscription) {
+        if (disposed) break;
+
+        if (event.type === "session.text.delta") {
+          // Feed the turn buffer with assistant text deltas
+          const data = event.data as Record<string, unknown> | undefined;
+          if (data && typeof data["sessionID"] === "string" && typeof data["delta"] === "string") {
+            const sessionID = data["sessionID"] as string;
+            const delta = data["delta"] as string;
+            const messageID = typeof data["assistantMessageID"] === "string"
+              ? (data["assistantMessageID"] as string)
+              : undefined;
+            deps.buffer.push(sessionID, messageID, delta);
+          }
+        } else if (event.type === "session.idle") {
+          // Schedule extraction on next tick — NEVER block the user
+          const payload = event.data;
+          setTimeout(() => {
+            void handleIdleAsync(payload).catch((err) => {
+              // CRITICAL: idle handler NEVER throws
+              logger.debug(
+                `[residue] idle handler error (suppressed): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            });
+          }, 0);
+        }
+      }
+    } catch (err) {
+      // Subscription loop error (e.g. AbortError from cleanup)
+      if (!disposed) {
         logger.debug(
-          `[residue] idle handler error (suppressed): ${
+          `[residue] event subscription error (suppressed): ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
-      });
-    }, 0);
-  };
+      }
+    }
+  })();
 
   // The async handler (extracted for clarity)
   async function handleIdleAsync(payload: unknown): Promise<void> {
@@ -173,7 +212,11 @@ export function registerIngestion(
       const state = getState(sessionID);
       const now = Date.now();
 
-      if (now - state.lastExtractionTimestamp < options.minIntervalMs) {
+      // Skip debounce check when minIntervalMs is 0 (tests and explicit config).
+      // When multiple setTimeout(0) handlers fire in the same tick, Date.now()
+      // returns the same value for all of them, so the debounce would block all
+      // but the first — defeating the per-session counter cap.
+      if (options.minIntervalMs > 0 && now - state.lastExtractionTimestamp < options.minIntervalMs) {
         logger.debug(
           `[residue] extraction skipped for session ${sessionID.slice(0, 12)} — ` +
           `minIntervalMs not elapsed`,
@@ -230,7 +273,6 @@ export function registerIngestion(
           maxFactsPerIdle: options.maxFactsPerIdle,
         },
         logger,
-        signal,
       );
 
       if (extractionResult.drafts.length === 0) {
@@ -271,11 +313,11 @@ export function registerIngestion(
     }
   }
 
-  subscription.on("session.idle", handleIdle);
-
   // Return cleanup function
   return () => {
+    disposed = true;
     sessionStates.clear();
+    ac.abort();
   };
 }
 

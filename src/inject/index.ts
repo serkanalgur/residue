@@ -17,10 +17,10 @@ export type { Memo, MemoEntry } from "./memo.js";
 export { registerContextHook } from "./context-hook.js";
 export type { ContextHookDeps } from "./context-hook.js";
 
-import type { SessionContext } from "@opencode/plugin/promise/session";
+import { Plugin } from "@opencode/plugin";
 import type { ResidueOptions } from "../config.js";
 import type { Logger } from "../log.js";
-import type { MemoryStore, Embedder, ResolvedEmbedder, ResolvedScope } from "../core/ports.js";
+import type { MemoryStore, ResolvedEmbedder, ResolvedScope } from "../core/ports.js";
 import { createMemo } from "./memo.js";
 import { registerContextHook } from "./context-hook.js";
 
@@ -39,15 +39,7 @@ export interface InjectionDeps {
 }
 
 /** Minimal plugin context shape needed for injection registration. */
-export interface InjectionCtx {
-  session: {
-    hook: <Name extends string>(
-      name: Name,
-      callback: (event: unknown) => Promise<void> | void,
-      options?: { providerID?: string },
-    ) => Promise<{ dispose: () => Promise<void> }>;
-  };
-}
+type InjectionCtx = Pick<Plugin.Context, "session">;
 
 // ---------------------------------------------------------------------------
 // registerInjection
@@ -79,7 +71,7 @@ export function registerInjection(
   const memo = createMemo();
 
   const cleanup = registerContextHook(
-    ctx as unknown as Parameters<typeof registerContextHook>[0],
+    ctx,
     deps,
     options,
     logger,

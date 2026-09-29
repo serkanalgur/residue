@@ -9,7 +9,6 @@
 
 import type { SqliteDatabase } from "./driver.js";
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
-import { join } from "node:path";
 
 /** Lock file extension. */
 const LOCK_EXT = ".lock";

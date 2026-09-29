@@ -11,6 +11,7 @@
 import type { MemoryDraft, MemoryRecord, SearchHit } from "../core/types.js";
 import type { MemoryStore, ScopePredicate } from "../core/ports.js";
 import { newId } from "../util/ids.js";
+import { cosine } from "../embed/normalize.js";
 
 /**
  * In-memory memory store implementing the MemoryStore port.
@@ -73,7 +74,7 @@ export class InMemoryStore implements MemoryStore {
 
       // Vector similarity scoring
       if (embedding && record.embedding) {
-        const vecScore = cosineSimilarity(embedding, record.embedding);
+        const vecScore = cosine(embedding, record.embedding);
         // Combine scores (vector takes precedence if available)
         score = Math.max(score, vecScore);
       }
@@ -283,25 +284,4 @@ function matchesPredicate(
   return true;
 }
 
-/**
- * Compute cosine similarity between two vectors.
- *
- * @param a - First vector.
- * @param b - Second vector.
- * @returns Cosine similarity.
- */
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    const av = a[i]!;
-    const bv = b[i]!;
-    dot += av * bv;
-    normA += av * av;
-    normB += bv * bv;
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
+

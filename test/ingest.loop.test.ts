@@ -11,10 +11,13 @@
  * Uses MOCKS for ctx.event.subscribe, ctx.session.get, store, buffer, and model.
  * NO REAL API CALLS.
  *
+ * The V2 API uses AsyncIterable for events. Our mock creates an async generator
+ * that yields events on demand via a controller.
+ *
  * @module test/ingest.loop
  */
 
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { registerIngestion, type IngestionCtx, type SubscribeDeps } from "../src/ingest/subscribe.js";
 import type { IngestOptions } from "../src/ingest/types.js";
 import type { MemoryDraft } from "../src/core/types.js";
@@ -49,23 +52,65 @@ const DEFAULT_OPTIONS: IngestOptions = {
   bufferMaxChars: 100_000,
 };
 
-/** Create a mock IngestionCtx with captured event handlers. */
+/**
+ * Create a mock event source that yields events on demand.
+ * Uses a buffer to queue events that are emitted before the iterator starts.
+ */
+function createMockEventSource() {
+  type Event = { readonly type: string; readonly data?: Record<string, unknown> };
+  const eventBuffer: Event[] = [];
+  const waitingResolvers: Array<(value: IteratorResult<Event>) => void> = [];
+  let done = false;
+
+  return {
+    subscribe: (_opts: { signal?: AbortSignal }) => ({
+      [Symbol.asyncIterator]() {
+        return {
+          next(): Promise<IteratorResult<Event>> {
+            // If events are buffered, deliver immediately
+            if (eventBuffer.length > 0) {
+              const event = eventBuffer.shift()!;
+              return Promise.resolve({ value: event, done: false });
+            }
+            // Otherwise wait for an event
+            return new Promise((resolve) => {
+              waitingResolvers.push(resolve);
+            });
+          },
+          return(): Promise<IteratorResult<Event>> {
+            done = true;
+            return Promise.resolve({ value: undefined as never, done: true });
+          },
+        };
+      },
+    }),
+    emit(type: string, data?: Record<string, unknown>) {
+      const event = { type, data } as Event;
+      if (waitingResolvers.length > 0) {
+        // Someone is waiting — deliver directly
+        const resolver = waitingResolvers.shift()!;
+        resolver({ value: event, done: false });
+      } else {
+        // Buffer the event for later
+        eventBuffer.push(event);
+      }
+    },
+    isDone: () => done,
+  };
+}
+
+/** Create a mock IngestionCtx with an event source that can emit events. */
 function makeMockCtx(): {
   ctx: IngestionCtx;
   emitIdle: (sessionID: string) => void;
+  emitDelta: (sessionID: string, delta: string) => void;
   idleCount: number;
 } {
-  const handlers = new Map<string, (payload: unknown) => void>();
   let idleCount = 0;
+  const eventSource = createMockEventSource();
 
   const ctx: IngestionCtx = {
-    event: {
-      subscribe: () => ({
-        on: (eventType: string, handler: (payload: unknown) => void) => {
-          handlers.set(eventType, handler);
-        },
-      }),
-    },
+    event: eventSource,
     session: {
       get: async ({ sessionID }: { sessionID: string }) => {
         return { projectID: RESOLVED.projectID };
@@ -80,10 +125,10 @@ function makeMockCtx(): {
     ctx,
     emitIdle: (sessionID: string) => {
       idleCount++;
-      const handler = handlers.get("session.idle");
-      if (handler) {
-        handler({ sessionID });
-      }
+      eventSource.emit("session.idle", { sessionID });
+    },
+    emitDelta: (sessionID: string, delta: string) => {
+      eventSource.emit("session.text.delta", { sessionID, delta, assistantMessageID: "msg-1", ordinal: 0 });
     },
     get idleCount() {
       return idleCount;
@@ -120,7 +165,7 @@ function makeMockGenerate(responses: string[] = []) {
 
 /** Wait for setTimeout(0) callbacks to flush. */
 function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 50));
+  return new Promise((resolve) => setTimeout(resolve, 100));
 }
 
 // ---------------------------------------------------------------------------
@@ -436,19 +481,11 @@ describe("Ingestion loop — session isolation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Ingestion loop — session ID extraction", () => {
-  it("extracts sessionID from string payload", async () => {
+  it("extracts sessionID from object payload", async () => {
     const store = new InMemoryStore();
     await store.initialize();
 
-    const { ctx } = makeMockCtx();
-    const handlers = new Map<string, (payload: unknown) => void>();
-
-    ctx.event.subscribe = () => ({
-      on: (eventType: string, handler: (payload: unknown) => void) => {
-        handlers.set(eventType, handler);
-      },
-    });
-
+    const { ctx, emitIdle } = makeMockCtx();
     const buffer = makeMockBuffer(null);
     const { generateText } = makeMockGenerate([]);
 
@@ -461,11 +498,7 @@ describe("Ingestion loop — session ID extraction", () => {
       sessionGet: async () => ({ projectID: RESOLVED.projectID }),
     }, DEFAULT_OPTIONS, silentLog);
 
-    // Emit with string payload
-    const handler = handlers.get("session.idle");
-    expect(handler).toBeDefined();
-
-    // This should not throw
-    expect(() => handler!("ses-string-id")).not.toThrow();
+    // Emit with object payload — this is the standard V2 event shape
+    expect(() => emitIdle("ses-string-id")).not.toThrow();
   });
 });

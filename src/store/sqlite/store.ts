@@ -70,7 +70,7 @@ function resolveScopeParams(scope: ScopePredicate): {
   where: string;
   values: (string | number)[];
 } {
-  const keys = Object.keys(scope.params);
+  const keys = Object.keys(scope.params).sort();
   const values: (string | number)[] = [];
   let where = scope.where;
 

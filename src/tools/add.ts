@@ -12,7 +12,6 @@ import type { MemoryKind, Scope, MemoryDraft } from "../core/types.js";
 import type { ResolvedScope } from "../core/ports.js";
 import type { Logger } from "../log.js";
 import { buildScopePredicate } from "../scope.js";
-import { newId } from "../util/ids.js";
 
 // ---------------------------------------------------------------------------
 // Types

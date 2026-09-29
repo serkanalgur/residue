@@ -15,7 +15,7 @@
  *    - **Decisions** ("kind": "decision"): choices made, paths chosen, alternatives rejected.
  *    - **Preferences** ("kind": "fact"): user preferences, tool choices, style constraints.
  *    - **Constraints** ("kind": "pattern"): architectural rules, must-follow patterns.
- *    - **Rationale** ("kind": "fact"): WHY something was chosen (the "neden").
+ *    - **Rationale** ("kind": "fact"): WHY something was chosen (the rationale).
  *
  *    Do NOT extract:
  *    - General conversation, greetings, acknowledgements.

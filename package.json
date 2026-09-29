@@ -10,14 +10,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "tsc --noEmit"
+    "lint": "biome check src/ test/"
   },
   "peerDependencies": {
     "@opencode/plugin": "^2.0.0",
-    "@opencode/ai": "^2.0.0",
-    "@opencode/schema": "^2.0.0"
+    "@opencode/ai": "^2.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@opencode/plugin": "2.0.19",
     "@types/node": "^22.0.0",
     "bun-types": "^1.4.0",

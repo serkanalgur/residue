@@ -10,6 +10,11 @@
  * Security invariant: the caller MUST provide the project ID via `resolved`,
  * never from external input. `validateScopeBind` enforces this at the SQL level.
  *
+ * NOTE: This module provides general-purpose query building. SqliteStore.search
+ * builds its own FTS5-specific SQL because FTS5 MATCH queries require a different
+ * structure (JOIN with memory_fts, ORDER BY rank). Both share scope handling
+ * via resolveScopeParams in store.ts.
+ *
  * @module retrieval/query
  */
 

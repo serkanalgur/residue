@@ -177,5 +177,5 @@ export function dropVecTables(db: SqliteDatabase, embedderId: string): void {
  * @returns Safe table name component.
  */
 function sanitizeTableName(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return id.replace(/[^a-zA-Z0-9]/g, "_");
 }

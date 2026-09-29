@@ -3,7 +3,18 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+*.db-lock
+*.lock
+.env
+.env.*
 .DS_Store
 .opencode/
 REPORT.md
 RAPOR.md
+
+# agent reports — never committed
+*-REPORT.md
+REPORT.md
+RAPOR.md
+WIRING-REPORT.md
+.task-*.md

@@ -95,34 +95,43 @@ export async function hybridSearch(
 
   const channelLimit = Math.max(options.channelLimit, options.limit * 2);
 
-  // --- Lexical channel (always runs) ---
+  // --- Run both channels in parallel (they are independent) ---
   let lexicalHits: readonly SearchHit[] = [];
-  try {
-    lexicalHits = await store.search(query, null, params.scope, channelLimit);
-  } catch (err) {
-    logger.warn(`[residue] lexical search failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // --- Vector channel (runs if embedder available) ---
   let vectorHits: readonly SearchHit[] = [];
   let vectorDegraded = false;
 
-  if (embedder && !embedder.degraded) {
+  const lexicalPromise = (async () => {
     try {
-      const embedding = await embedder.embed(query);
-      if (embedding) {
-        vectorHits = await store.search(query, embedding, params.scope, channelLimit);
-      } else {
-        vectorDegraded = true;
-        logger.debug("[residue] vector channel: embed returned null");
-      }
+      return await store.search(query, null, params.scope, channelLimit);
     } catch (err) {
-      vectorDegraded = true;
-      logger.warn(`[residue] vector search failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[residue] lexical search failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [] as readonly SearchHit[];
     }
-  } else {
-    vectorDegraded = true;
-  }
+  })();
+
+  const vectorPromise = (async () => {
+    if (embedder && !embedder.degraded) {
+      try {
+        const embedding = await embedder.embed(query);
+        if (embedding) {
+          return await store.search(query, embedding, params.scope, channelLimit);
+        } else {
+          vectorDegraded = true;
+          logger.debug("[residue] vector channel: embed returned null");
+          return [] as readonly SearchHit[];
+        }
+      } catch (err) {
+        vectorDegraded = true;
+        logger.warn(`[residue] vector search failed: ${err instanceof Error ? err.message : String(err)}`);
+        return [] as readonly SearchHit[];
+      }
+    } else {
+      vectorDegraded = true;
+      return [] as readonly SearchHit[];
+    }
+  })();
+
+  [lexicalHits, vectorHits] = await Promise.all([lexicalPromise, vectorPromise]);
 
   // --- Merge with RRF ---
   const merged = rrfMerge(lexicalHits, vectorHits, RRF_K);

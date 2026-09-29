@@ -27,13 +27,12 @@
  * @module ingest/extractor
  */
 
-import type { MemoryDraft, MemoryKind, SourceRef, Scope } from "../core/types.js";
+import type { MemoryDraft, MemoryKind, SourceRef } from "../core/types.js";
 import type { ResolvedScope } from "../core/ports.js";
 import type { Logger } from "../log.js";
-import type { RawExtraction, ExtractionResponse, ExtractionResult } from "./types.js";
+import type { ExtractionResponse, ExtractionResult } from "./types.js";
 import { buildExtractionPrompt } from "./prompts.js";
 import { redactSecrets } from "../config.js";
-import { newId } from "../util/ids.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -103,7 +102,7 @@ export async function extractMemories(
     readonly prompt: string;
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string };
   }) => Promise<{ readonly text: string }>,
-  defaultModel: () => { readonly id: string; readonly providerID: string; readonly variant?: string },
+  defaultModel: () => { readonly id: string; readonly providerID: string; readonly variant?: string } | Promise<{ readonly id: string; readonly providerID: string; readonly variant?: string }>,
   text: string,
   sessionID: string,
   messageID: string | undefined,
@@ -120,7 +119,7 @@ export async function extractMemories(
   try {
     // Build the extraction prompt
     const prompt = buildExtractionPrompt(text);
-    const model = options.extractModel ?? defaultModel();
+    const model = options.extractModel ?? await defaultModel();
 
     // Call the LLM
     const response = await generateText({ prompt, model });
