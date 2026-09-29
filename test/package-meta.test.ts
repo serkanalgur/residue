@@ -32,3 +32,40 @@ describe("Package metadata — scoped name", () => {
     expect(pkg.homepage).toBe("https://github.com/serkanalgur/residue");
   });
 });
+
+describe("Package metadata — files allowlist", () => {
+  it("files array is defined", () => {
+    expect(Array.isArray(pkg.files)).toBe(true);
+  });
+
+  it("files includes src/", () => {
+    expect(pkg.files).toContain("src/");
+  });
+
+  it("files includes README.md", () => {
+    expect(pkg.files).toContain("README.md");
+  });
+
+  it("files includes LICENSE", () => {
+    expect(pkg.files).toContain("LICENSE");
+  });
+
+  it("files does NOT include test/", () => {
+    expect(pkg.files).not.toContain("test/");
+  });
+
+  it("files does NOT include .github", () => {
+    expect(pkg.files).not.toContain(".github");
+  });
+
+  it("files does NOT include node_modules", () => {
+    expect(pkg.files).not.toContain("node_modules");
+  });
+
+  it("exports target is inside a file listed in files", () => {
+    const exportTarget = Object.values(pkg.exports)[0] as string;
+    // The export target starts with "./src/" which is covered by the "src/" entry
+    const exportDir = exportTarget.replace(/^\.\//, "").split("/")[0] + "/";
+    expect(pkg.files).toContain(exportDir);
+  });
+});
