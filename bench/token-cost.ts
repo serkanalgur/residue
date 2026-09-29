@@ -44,16 +44,32 @@ import type { MemoryStore, ResolvedScope } from "../src/core/ports.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const RESOLVED: ResolvedScope = {
+export const RESOLVED: ResolvedScope = {
   projectID: "proj-benchmark",
   worktreeKey: "wk-benchmark",
   branchKey: "main",
   canonicalDir: "/benchmark",
 };
 
-const OPTIONS = resolveOptions({});
+export const OPTIONS = resolveOptions({});
 
-const TURN_COUNT = 45;
+export const TURN_COUNT = 45;
+
+/**
+ * Fixed seed timestamp for deterministic record creation.
+ * All seeded records share this timestamp so output is reproducible.
+ */
+const SEED_TIMESTAMP = "2026-01-01T00:00:00.000Z";
+
+/**
+ * Locale-independent thousands separator.
+ * `toLocaleString()` depends on the runtime locale, which makes the report
+ * non-deterministic across machines.  This helper always produces US-style
+ * comma-separated grouping: 142342 → "142,342".
+ */
+function formatNumber(n: number): string {
+  return n.toLocaleString("en-US");
+}
 
 // ---------------------------------------------------------------------------
 // Simulated memories (what Residue would have stored)
@@ -86,7 +102,7 @@ const MEMORIES: Array<{ content: string; kind: "fact" | "decision" | "pattern" }
 // Simulated user questions (45 turns)
 // ---------------------------------------------------------------------------
 
-const QUESTIONS: string[] = [
+export const QUESTIONS: string[] = [
   "database sqlite configured",
   "architecture pattern decisions",
   "typescript strict mode settings",
@@ -139,7 +155,7 @@ const QUESTIONS: string[] = [
 // ---------------------------------------------------------------------------
 
 /** Seed the store with simulated memories. */
-async function seedStore(store: MemoryStore): Promise<void> {
+export async function seedStore(store: MemoryStore): Promise<void> {
   for (const mem of MEMORIES) {
     const draft: MemoryDraft = {
       kind: mem.kind,
@@ -151,7 +167,7 @@ async function seedStore(store: MemoryStore): Promise<void> {
       embedding: null,
       source: {
         sessionID: "ses-seed",
-        timestamp: new Date().toISOString(),
+        timestamp: SEED_TIMESTAMP,
       },
       tags: [],
     };
@@ -160,7 +176,7 @@ async function seedStore(store: MemoryStore): Promise<void> {
 }
 
 /** Configuration 1: prompt hook — injection becomes persisted user input. */
-interface PromptInjectionResult {
+export interface PromptInjectionResult {
   strategy: "prompt";
   totalInputTokens: number;
   turnTokens: number[];
@@ -168,7 +184,7 @@ interface PromptInjectionResult {
   recall: number;
 }
 
-async function simulatePromptHook(store: MemoryStore): Promise<PromptInjectionResult> {
+export async function simulatePromptHook(store: MemoryStore): Promise<PromptInjectionResult> {
   const scope = buildScopePredicate("both", RESOLVED, OPTIONS);
   const turnTokens: number[] = [];
   let totalInputTokens = 0;
@@ -214,7 +230,7 @@ async function simulatePromptHook(store: MemoryStore): Promise<PromptInjectionRe
 }
 
 /** Configuration 2: context hook — injection affects only the current call. */
-interface ContextInjectionResult {
+export interface ContextInjectionResult {
   strategy: "context";
   totalInputTokens: number;
   turnTokens: number[];
@@ -222,7 +238,7 @@ interface ContextInjectionResult {
   recall: number;
 }
 
-async function simulateContextHook(store: MemoryStore): Promise<ContextInjectionResult> {
+export async function simulateContextHook(store: MemoryStore): Promise<ContextInjectionResult> {
   const scope = buildScopePredicate("both", RESOLVED, OPTIONS);
   const turnTokens: number[] = [];
   let totalInputTokens = 0;
@@ -263,7 +279,7 @@ async function simulateContextHook(store: MemoryStore): Promise<ContextInjection
 }
 
 /** Configuration 3: tool-only — no automatic injection. */
-interface ToolOnlyResult {
+export interface ToolOnlyResult {
   strategy: "tool-only";
   totalInputTokens: number;
   turnTokens: number[];
@@ -271,7 +287,7 @@ interface ToolOnlyResult {
   recall: number;
 }
 
-async function simulateToolOnly(store: MemoryStore): Promise<ToolOnlyResult> {
+export async function simulateToolOnly(store: MemoryStore): Promise<ToolOnlyResult> {
   const scope = buildScopePredicate("both", RESOLVED, OPTIONS);
   const turnTokens: number[] = [];
   let totalInputTokens = 0;
@@ -393,7 +409,7 @@ async function main(): Promise<void> {
 // Report builder
 // ---------------------------------------------------------------------------
 
-function buildReport(
+export function buildReport(
   promptResult: PromptInjectionResult,
   contextResult: ContextInjectionResult,
   toolOnlyResult: ToolOnlyResult,
@@ -410,7 +426,7 @@ function buildReport(
   lines.push("");
   lines.push(`| Metric | Prompt Hook | Context Hook | Tool-Only |`);
   lines.push(`|--------|-------------|--------------|-----------|`);
-  lines.push(`| Total input tokens | ${promptResult.totalInputTokens.toLocaleString()} | ${contextResult.totalInputTokens.toLocaleString()} | ${toolOnlyResult.totalInputTokens.toLocaleString()} |`);
+  lines.push(`| Total input tokens | ${formatNumber(promptResult.totalInputTokens)} | ${formatNumber(contextResult.totalInputTokens)} | ${formatNumber(toolOnlyResult.totalInputTokens)} |`);
   lines.push(`| Estimated cost (USD) | $${promptCost.costUsd.toFixed(4)} | $${contextCost.costUsd.toFixed(4)} | $${toolOnlyCost.costUsd.toFixed(4)} |`);
   lines.push(`| Recall | ${(promptResult.recall * 100).toFixed(0)}% | ${(contextResult.recall * 100).toFixed(0)}% | ${(toolOnlyResult.recall * 100).toFixed(0)}% |`);
   lines.push(`| Injection points | ${promptResult.injectedFacts}/${TURN_COUNT} turns | ${contextResult.injectedFacts}/${TURN_COUNT} turns | ${toolOnlyResult.injectedFacts}/${TURN_COUNT} turns |`);
@@ -436,7 +452,7 @@ function buildReport(
   lines.push("It provides the best balance of cost and recall:");
   lines.push(`- Same recall as prompt-hook (${(contextResult.recall * 100).toFixed(0)}%)`);
   lines.push(`- ${promptVsContext.toFixed(1)}× cheaper than prompt-hook`);
-  lines.push(`- ~${contextResult.totalInputTokens.toLocaleString()} tokens vs ${toolOnlyResult.totalInputTokens.toLocaleString()} for tool-only — a modest increase for guaranteed recall`);
+  lines.push(`- ~${formatNumber(contextResult.totalInputTokens)} tokens vs ${formatNumber(toolOnlyResult.totalInputTokens)} for tool-only — a modest increase for guaranteed recall`);
   lines.push("");
 
   // Build per-turn table
@@ -449,7 +465,7 @@ function buildReport(
     const promptTokens = promptResult.turnTokens[i] ?? 0;
     const contextTokens = contextResult.turnTokens[i] ?? 0;
     const toolTokens = toolOnlyResult.turnTokens[i] ?? 0;
-    lines.push(`| ${i + 1} | ${promptTokens.toLocaleString()} | ${contextTokens.toLocaleString()} | ${toolTokens.toLocaleString()} |`);
+    lines.push(`| ${i + 1} | ${formatNumber(promptTokens)} | ${formatNumber(contextTokens)} | ${formatNumber(toolTokens)} |`);
   }
 
   lines.push("");
@@ -503,7 +519,7 @@ function buildReport(
   lines.push("");
 
   lines.push("---");
-  lines.push(`*Generated by \`bench/token-cost.ts\` on ${new Date().toISOString()}*`);
+  lines.push(`*Generated by \`bench/token-cost.ts\` — ${recordCount} records, ${TURN_COUNT} turns, ${QUESTIONS.length} queries*`);
 
   return lines.join("\n");
 }
