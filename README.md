@@ -108,6 +108,12 @@ bun test
 bun run lint
 ```
 
+## Community
+
+- [Contributing](./CONTRIBUTING.md) — development setup, guidelines, and how to submit changes
+- [Code of Conduct](./CODE_OF_CONDUCT.md) — standards for community participation
+- [Security Policy](./SECURITY.md) — vulnerability reporting and security properties
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
