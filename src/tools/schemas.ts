@@ -124,3 +124,72 @@ export const ADD_TOOL_SCHEMA = {
   required: ["content"],
   additionalProperties: false,
 } as const;
+
+/**
+ * Schema for the `res_forget` tool.
+ *
+ * Preview and delete memory records. Two-step workflow:
+ * 1. Preview (confirm=false): returns matching records without deleting.
+ * 2. Delete (confirm=true): removes the matched records.
+ */
+export const FORGET_TOOL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    id: {
+      type: "string" as const,
+      description: "Delete exactly this record by ID",
+    },
+    query: {
+      type: "string" as const,
+      description: "Find matching records by text query",
+    },
+    scope: {
+      type: "string" as const,
+      enum: ["project", "global", "all"] as const,
+      description: "Scope filter",
+      default: "all",
+    },
+    kind: {
+      type: "string" as const,
+      enum: ["fact", "decision", "pattern", "digest", "profile", "all"] as const,
+      description: "Memory kind filter",
+      default: "all",
+    },
+    sinceDays: {
+      type: "integer" as const,
+      description: "Only include records created within the last N days",
+      minimum: 1,
+      maximum: 3650,
+    },
+    confirm: {
+      type: "boolean" as const,
+      description: "Confirm deletion. Default false (preview only).",
+      default: false,
+    },
+  },
+  additionalProperties: false,
+} as const;
+
+/**
+ * Schema for the `res_profile` tool.
+ *
+ * Read-only cross-project aggregated view of durable preferences.
+ */
+export const PROFILE_TOOL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    includeProject: {
+      type: "boolean" as const,
+      description: "Include current project records alongside global. Default: false.",
+      default: false,
+    },
+    maxScan: {
+      type: "integer" as const,
+      description: "Maximum records to scan (1–1000). Default: 200.",
+      minimum: 1,
+      maximum: 1000,
+      default: 200,
+    },
+  },
+  additionalProperties: false,
+} as const;

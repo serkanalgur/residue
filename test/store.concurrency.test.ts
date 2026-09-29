@@ -127,12 +127,12 @@ describe("SQLite WAL concurrency", () => {
     });
     expect(totalCount).toBe(WRITES_PER_WORKER * 2);
 
-    // Verify total content length
+    // Verify total record count
     const stats = await verifyStore.stats({
       where: "scope = 'project' AND project_id = :pid",
       params: { ":pid": "proj-test" },
     });
-    expect(stats.totalContentLength).toBe(resultA.totalLen + resultB.totalLen);
+    expect(stats.total).toBe(WRITES_PER_WORKER * 2);
 
     // Verify both workers' records are present
     const resultsA = await verifyStore.search(

@@ -42,6 +42,16 @@ export interface MemoryRecord {
   readonly source: SourceRef;
   /** Optional tags for categorization. */
   readonly tags: readonly string[];
+  /** Confidence score (0.0–1.0). Higher = more reliable. */
+  readonly confidence: number;
+  /** Epoch milliseconds when the record was created. */
+  readonly created_at: number;
+  /** Epoch milliseconds of last access (touch). */
+  readonly last_access: number;
+  /** Number of times this record has been accessed. */
+  readonly access_count: number;
+  /** ID of the record that supersedes this one, or null. */
+  readonly superseded_by: string | null;
 }
 
 /** A search result hit from the memory store. */
@@ -52,6 +62,18 @@ export interface SearchHit {
   readonly score: number;
   /** Whether this hit was returned by full-text search (true) or vector similarity (false). */
   readonly ftsMatch: boolean;
+}
+
+/** Partial patch for updating an existing memory record. */
+export interface MemoryPatch {
+  /** New content text. */
+  readonly content?: string;
+  /** New tags. */
+  readonly tags?: readonly string[];
+  /** New confidence score. */
+  readonly confidence?: number;
+  /** Record ID that supersedes this one. */
+  readonly superseded_by?: string | null;
 }
 
 /** A draft for creating a new memory record (before ID assignment). */
@@ -74,6 +96,8 @@ export interface MemoryDraft {
   readonly source: SourceRef;
   /** Tags. */
   readonly tags: readonly string[];
+  /** Override creation timestamp (epoch ms). If omitted, Date.now() is used. */
+  readonly created_at?: number;
 }
 
 /** Payload injected into the context hook for the model call. */

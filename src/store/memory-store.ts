@@ -8,8 +8,8 @@
  * @module store/memory-store
  */
 
-import type { MemoryDraft, MemoryRecord, SearchHit } from "../core/types.js";
-import type { MemoryStore, ScopePredicate } from "../core/ports.js";
+import type { MemoryDraft, MemoryKind, MemoryPatch, MemoryRecord, SearchHit } from "../core/types.js";
+import type { MemoryStore, ScopePredicate, ScanOptions, StoreStats } from "../core/ports.js";
 import { newId } from "../util/ids.js";
 import { cosine } from "../embed/normalize.js";
 
@@ -30,6 +30,8 @@ export class InMemoryStore implements MemoryStore {
   /** @inheritdoc */
   async insert(draft: MemoryDraft): Promise<MemoryRecord> {
     const id = newId();
+    const now = Date.now();
+    const createdAt = draft.created_at ?? now;
     const record: MemoryRecord = {
       id,
       kind: draft.kind,
@@ -41,6 +43,11 @@ export class InMemoryStore implements MemoryStore {
       embedding: draft.embedding,
       source: draft.source,
       tags: draft.tags,
+      confidence: 0.6,
+      created_at: createdAt,
+      last_access: createdAt,
+      access_count: 0,
+      superseded_by: null,
     };
     this.records.set(id, record);
     return record;
@@ -102,6 +109,107 @@ export class InMemoryStore implements MemoryStore {
     this.records.clear();
   }
 
+  /** @inheritdoc */
+  async get(id: string): Promise<MemoryRecord | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  /** @inheritdoc */
+  async update(id: string, patch: MemoryPatch): Promise<MemoryRecord | null> {
+    const existing = this.records.get(id);
+    if (!existing) return null;
+
+    const updated: MemoryRecord = {
+      ...existing,
+      content: patch.content ?? existing.content,
+      tags: patch.tags ?? existing.tags,
+      confidence: patch.confidence ?? existing.confidence,
+      superseded_by:
+        patch.superseded_by !== undefined ? patch.superseded_by : existing.superseded_by,
+    };
+    this.records.set(id, updated);
+    return updated;
+  }
+
+  /** @inheritdoc */
+  async remove(id: string): Promise<boolean> {
+    return this.records.delete(id);
+  }
+
+  /** @inheritdoc */
+  async removeMany(ids: readonly string[]): Promise<number> {
+    let count = 0;
+    for (const id of ids) {
+      if (this.records.delete(id)) count++;
+    }
+    return count;
+  }
+
+  /** @inheritdoc */
+  async scan(options: ScanOptions): Promise<readonly MemoryRecord[]> {
+    const results: MemoryRecord[] = [];
+    for (const record of this.records.values()) {
+      if (!matchesPredicate(record, options.scope)) continue;
+      if (options.kind && record.kind !== options.kind) continue;
+      if (options.since !== undefined && record.created_at < options.since) continue;
+      if (options.until !== undefined && record.created_at > options.until) continue;
+      results.push(record);
+    }
+    // Sort by created_at DESC
+    results.sort((a, b) => b.created_at - a.created_at);
+    const offset = options.offset ?? 0;
+    const limit = options.limit ?? 100;
+    return results.slice(offset, offset + limit);
+  }
+
+  /** @inheritdoc */
+  async stats(scope: ScopePredicate): Promise<StoreStats> {
+    let total = 0;
+    let oldest: number | null = null;
+    let newest: number | null = null;
+    const byKind: Record<string, number> = {};
+
+    for (const record of this.records.values()) {
+      if (!matchesPredicate(record, scope)) continue;
+      total++;
+      byKind[record.kind] = (byKind[record.kind] ?? 0) + 1;
+      if (oldest === null || record.created_at < oldest) oldest = record.created_at;
+      if (newest === null || record.created_at > newest) newest = record.created_at;
+    }
+
+    return {
+      total,
+      byKind: byKind as Readonly<Record<MemoryKind, number>>,
+      oldest,
+      newest,
+      dbBytes: 0, // In-memory store has no disk footprint
+    };
+  }
+
+  /** @inheritdoc */
+  async touch(id: string): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) return;
+    // MemoryRecord is readonly, so we create a new object
+    const updated: MemoryRecord = {
+      ...record,
+      last_access: Date.now(),
+      access_count: record.access_count + 1,
+    };
+    this.records.set(id, updated);
+  }
+
+  /** @inheritdoc */
+  async supersede(oldId: string, newId: string): Promise<void> {
+    const record = this.records.get(oldId);
+    if (!record) return;
+    const updated: MemoryRecord = {
+      ...record,
+      superseded_by: newId,
+    };
+    this.records.set(oldId, updated);
+  }
+
   /**
    * Delete records matching a scope predicate.
    *
@@ -131,9 +239,7 @@ export class InMemoryStore implements MemoryStore {
     let deleted = 0;
     for (const [id, record] of this.records) {
       if (!matchesPredicate(record, scope)) continue;
-      // Use source.timestamp as the creation time proxy
-      const created = new Date(record.source.timestamp).getTime();
-      if (created < cutoff) {
+      if (record.created_at < cutoff) {
         this.records.delete(id);
         deleted++;
       }
@@ -174,30 +280,6 @@ export class InMemoryStore implements MemoryStore {
     return toDelete.length;
   }
 
-  /**
-   * Get aggregate statistics.
-   *
-   * @param scope - Scope predicate.
-   * @returns Statistics object.
-   */
-  async stats(scope: ScopePredicate): Promise<{
-    readonly count: number;
-    readonly totalContentLength: number;
-    readonly avgConfidence: number;
-  }> {
-    let count = 0;
-    let totalLen = 0;
-    for (const record of this.records.values()) {
-      if (!matchesPredicate(record, scope)) continue;
-      count++;
-      totalLen += record.content.length;
-    }
-    return {
-      count,
-      totalContentLength: totalLen,
-      avgConfidence: 0.6, // Default confidence
-    };
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -133,13 +133,15 @@ for (const impl of implementations) {
           insertOldRecord(db, "old-record-2", oldMs);
           insertOldRecord(db, "new-record", newMs);
         } else {
-          // InMemoryStore: use source.timestamp (TTL checks source.timestamp)
+          // InMemoryStore: use created_at to simulate old records
           await store.insert(makeDraft({
             content: "old-record-1",
+            created_at: oldMs,
             source: { sessionID: "ses-old", timestamp: new Date(oldMs).toISOString() },
           }));
           await store.insert(makeDraft({
             content: "old-record-2",
+            created_at: oldMs,
             source: { sessionID: "ses-old", timestamp: new Date(oldMs).toISOString() },
           }));
           await store.insert(makeDraft({
@@ -191,12 +193,14 @@ for (const impl of implementations) {
         } else {
           await store.insert(makeDraft({
             content: "old-project-record",
+            created_at: oldMs,
             source: { sessionID: "ses-old", timestamp: new Date(oldMs).toISOString() },
           }));
           await store.insert(makeDraft({
             scope: "global",
             project_id: null,
             content: "old-global-record",
+            created_at: oldMs,
             source: { sessionID: "ses-old", timestamp: new Date(oldMs).toISOString() },
           }));
         }
@@ -319,10 +323,11 @@ for (const impl of implementations) {
         await store.insert(makeDraft({ content: "defgh" })); // 5 chars
 
         if ("stats" in store) {
-          const stats = await (store as { stats(scope: ScopePredicate): Promise<{ count: number; totalContentLength: number; avgConfidence: number }> }).stats(retentionScope());
-          expect(stats.count).toBe(2);
-          expect(stats.totalContentLength).toBe(8); // 3 + 5
-          expect(stats.avgConfidence).toBeGreaterThanOrEqual(0);
+          const stats = await (store as { stats(scope: ScopePredicate): Promise<import("../src/core/ports.js").StoreStats> }).stats(retentionScope());
+          expect(stats.total).toBe(2);
+          expect(stats.oldest).toBeGreaterThanOrEqual(0);
+          expect(stats.newest).toBeGreaterThanOrEqual(0);
+          expect(stats.byKind).toBeDefined();
         }
       });
 

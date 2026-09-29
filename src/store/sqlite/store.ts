@@ -8,8 +8,8 @@
  * @module store/sqlite/store
  */
 
-import type { MemoryDraft, MemoryRecord, SearchHit, Scope } from "../../core/types.js";
-import type { MemoryStore, ScopePredicate, Embedder } from "../../core/ports.js";
+import type { MemoryDraft, MemoryKind, MemoryPatch, MemoryRecord, SearchHit, Scope } from "../../core/types.js";
+import type { MemoryStore, ScopePredicate, Embedder, ScanOptions, StoreStats } from "../../core/ports.js";
 import type { SqliteDatabase } from "./driver.js";
 import { newId } from "../../util/ids.js";
 import { initSchema, createVecTable } from "./schema.js";
@@ -138,6 +138,7 @@ export class SqliteStore implements MemoryStore {
 
     const id = newId();
     const now = Date.now();
+    const createdAt = draft.created_at ?? now;
     const tagsJson = JSON.stringify(draft.tags);
     const sourceJson = JSON.stringify(draft.source);
 
@@ -155,8 +156,8 @@ export class SqliteStore implements MemoryStore {
         draft.worktree_key,
         draft.branch_key,
         sourceJson,
-        now,
-        now,
+        createdAt,
+        createdAt,
       ],
     );
 
@@ -192,6 +193,11 @@ export class SqliteStore implements MemoryStore {
       embedding: draft.embedding,
       source: draft.source,
       tags: draft.tags,
+      confidence: 0.6,
+      created_at: createdAt,
+      last_access: createdAt,
+      access_count: 0,
+      superseded_by: null,
     };
   }
 
@@ -284,6 +290,232 @@ export class SqliteStore implements MemoryStore {
       `SELECT COUNT(*) as cnt FROM memory WHERE ${resolved.where}`,
     ).get(...resolved.values) as { cnt: number } | undefined;
     return result?.cnt ?? 0;
+  }
+
+  /** @inheritdoc */
+  async get(id: string): Promise<MemoryRecord | null> {
+    const row = this.db.prepare("SELECT * FROM memory WHERE id = ?").get(id) as
+      | MemoryRow
+      | undefined;
+    return row ? rowToRecord(row) : null;
+  }
+
+  /** @inheritdoc */
+  async update(id: string, patch: MemoryPatch): Promise<MemoryRecord | null> {
+    if (this.config.readOnly) {
+      throw new Error("[residue] Store is in read-only mode");
+    }
+
+    const existing = await this.get(id);
+    if (!existing) return null;
+
+    const newContent = patch.content ?? existing.content;
+    const newTags = patch.tags ?? existing.tags;
+    const newConfidence = patch.confidence ?? existing.confidence;
+    const newSupersededBy =
+      patch.superseded_by !== undefined ? patch.superseded_by : existing.superseded_by;
+
+    const tagsJson = JSON.stringify(newTags);
+
+    this.db.run(
+      `UPDATE memory SET text = ?, tags = ?, confidence = ?, superseded_by = ? WHERE id = ?`,
+      [newContent, tagsJson, newConfidence, newSupersededBy, id],
+    );
+
+    // Keep FTS5 in sync: delete old entry, insert new one if content changed
+    if (this.fts5Available && newContent !== existing.content) {
+      try {
+        this.db.run("DELETE FROM memory_fts WHERE id = ?", [id]);
+        this.db.run("INSERT INTO memory_fts (id, text) VALUES (?, ?)", [id, newContent]);
+      } catch {
+        // FTS sync failure is non-fatal
+      }
+    }
+
+    // Keep vector in sync: re-embed would require the embedder, so we just
+    // delete the stale vector if content changed. The next ingest cycle will re-embed.
+    if (this.activeVecTable && newContent !== existing.content) {
+      try {
+        deleteVector(this.db, this.activeVecTable, id);
+      } catch {
+        // Best effort
+      }
+    }
+
+    return this.get(id);
+  }
+
+  /** @inheritdoc */
+  async remove(id: string): Promise<boolean> {
+    if (this.config.readOnly) {
+      throw new Error("[residue] Store is in read-only mode");
+    }
+
+    const existing = await this.get(id);
+    if (!existing) return false;
+
+    // Remove FTS entry
+    if (this.fts5Available) {
+      try {
+        this.db.run("DELETE FROM memory_fts WHERE id = ?", [id]);
+      } catch {
+        // Best effort
+      }
+    }
+
+    // Remove vector entry
+    if (this.activeVecTable) {
+      try {
+        deleteVector(this.db, this.activeVecTable, id);
+      } catch {
+        // Best effort
+      }
+    }
+
+    this.db.run("DELETE FROM memory WHERE id = ?", [id]);
+    return true;
+  }
+
+  /** @inheritdoc */
+  async removeMany(ids: readonly string[]): Promise<number> {
+    if (this.config.readOnly) {
+      throw new Error("[residue] Store is in read-only mode");
+    }
+    if (ids.length === 0) return 0;
+
+    // Count how many actually exist before deleting
+    const placeholders = ids.map(() => "?").join(", ");
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM memory WHERE id IN (${placeholders})`,
+    ).get(...ids) as { cnt: number } | undefined;
+    const existingCount = countRow?.cnt ?? 0;
+
+    // Remove FTS entries
+    if (this.fts5Available) {
+      for (const id of ids) {
+        try {
+          this.db.run("DELETE FROM memory_fts WHERE id = ?", [id]);
+        } catch {
+          // Best effort
+        }
+      }
+    }
+
+    // Remove vector entries
+    if (this.activeVecTable) {
+      for (const id of ids) {
+        try {
+          deleteVector(this.db, this.activeVecTable, id);
+        } catch {
+          // Best effort
+        }
+      }
+    }
+
+    // Delete records in a single statement for transactional behaviour
+    this.db.run(`DELETE FROM memory WHERE id IN (${placeholders})`, [...ids]);
+
+    return existingCount;
+  }
+
+  /** @inheritdoc */
+  async scan(options: ScanOptions): Promise<readonly MemoryRecord[]> {
+    const resolved = resolveScopeParams(options.scope);
+    const conditions: string[] = [resolved.where];
+    const params: (string | number)[] = [...resolved.values];
+
+    if (options.kind) {
+      conditions.push("kind = ?");
+      params.push(options.kind);
+    }
+    if (options.since !== undefined) {
+      conditions.push("created_at >= ?");
+      params.push(options.since);
+    }
+    if (options.until !== undefined) {
+      conditions.push("created_at <= ?");
+      params.push(options.until);
+    }
+
+    const where = conditions.join(" AND ");
+    const limit = options.limit ?? 100;
+    const offset = options.offset ?? 0;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM memory WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    ).all(...params, limit, offset) as MemoryRow[];
+
+    return rows.map(rowToRecord);
+  }
+
+  /** @inheritdoc */
+  async stats(scope: ScopePredicate): Promise<StoreStats> {
+    const resolved = resolveScopeParams(scope);
+
+    const aggRow = this.db.prepare(
+      `SELECT COUNT(*) as total,
+              MIN(created_at) as oldest,
+              MAX(created_at) as newest
+       FROM memory WHERE ${resolved.where}`,
+    ).get(...resolved.values) as {
+      total: number;
+      oldest: number | null;
+      newest: number | null;
+    } | undefined;
+
+    const total = aggRow?.total ?? 0;
+    const oldest = aggRow?.oldest ?? null;
+    const newest = aggRow?.newest ?? null;
+
+    // Count by kind
+    const kindRows = this.db.prepare(
+      `SELECT kind, COUNT(*) as cnt FROM memory WHERE ${resolved.where} GROUP BY kind`,
+    ).all(...resolved.values) as Array<{ kind: string; cnt: number }>;
+
+    const byKind: Record<string, number> = {};
+    for (const row of kindRows) {
+      byKind[row.kind] = row.cnt;
+    }
+
+    // Approximate DB size from page count
+    let dbBytes = 0;
+    try {
+      const pageRow = this.db.prepare("PRAGMA page_count").get() as
+        | { page_count: number }
+        | undefined;
+      const pageSize = this.db.prepare("PRAGMA page_size").get() as
+        | { page_size: number }
+        | undefined;
+      if (pageRow && pageSize) {
+        dbBytes = pageRow.page_count * pageSize.page_size;
+      }
+    } catch {
+      // Best effort
+    }
+
+    return {
+      total,
+      byKind: byKind as Readonly<Record<MemoryKind, number>>,
+      oldest,
+      newest,
+      dbBytes,
+    };
+  }
+
+  /** @inheritdoc */
+  async touch(id: string): Promise<void> {
+    this.touchRecord(id);
+  }
+
+  /** @inheritdoc */
+  async supersede(oldId: string, newId: string): Promise<void> {
+    if (this.config.readOnly) {
+      throw new Error("[residue] Store is in read-only mode");
+    }
+    this.db.run(
+      "UPDATE memory SET superseded_by = ? WHERE id = ?",
+      [newId, oldId],
+    );
   }
 
   /** @inheritdoc */
@@ -453,36 +685,6 @@ export class SqliteStore implements MemoryStore {
   }
 
   /**
-   * Get aggregate statistics about the store.
-   *
-   * @param scope - Scope predicate.
-   * @returns Statistics object.
-   */
-  async stats(scope: ScopePredicate): Promise<{
-    readonly count: number;
-    readonly totalContentLength: number;
-    readonly avgConfidence: number;
-  }> {
-    const resolved = resolveScopeParams(scope);
-    const result = this.db.prepare(
-      `SELECT COUNT(*) as cnt,
-              COALESCE(SUM(LENGTH(text)), 0) as total_len,
-              COALESCE(AVG(confidence), 0) as avg_conf
-       FROM memory WHERE ${resolved.where}`,
-    ).get(...resolved.values) as {
-      cnt: number;
-      total_len: number;
-      avg_conf: number;
-    } | undefined;
-
-    return {
-      count: result?.cnt ?? 0,
-      totalContentLength: result?.total_len ?? 0,
-      avgConfidence: result?.avg_conf ?? 0,
-    };
-  }
-
-  /**
    * Get schema version and FTS5 status.
    */
   get schemaInfo(): { readonly version: number; readonly fts5: boolean; readonly vecTable: string | null } {
@@ -524,7 +726,7 @@ function rowToRecord(row: MemoryRow): MemoryRecord {
 
   return {
     id: row.id,
-    kind: row.kind as MemoryRecord["kind"],
+    kind: row.kind as MemoryKind,
     scope: row.scope as Scope,
     project_id: row.project_id,
     worktree_key: row.worktree_key,
@@ -537,6 +739,11 @@ function rowToRecord(row: MemoryRow): MemoryRecord {
       timestamp: source.timestamp,
     },
     tags,
+    confidence: row.confidence,
+    created_at: row.created_at,
+    last_access: row.last_access,
+    access_count: row.access_count,
+    superseded_by: row.superseded_by,
   };
 }
 

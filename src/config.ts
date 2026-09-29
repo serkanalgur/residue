@@ -47,6 +47,48 @@ export interface ReportConfig {
 }
 
 /**
+ * Per-kind retention policy (TTL in days).
+ *
+ * Different memory kinds have different lifetimes:
+ * - `decision`: Long-lived — architectural decisions must be durable.
+ * - `pattern`: Long-lived — recurring patterns are valuable long-term.
+ * - `fact`: Medium-lived — factual knowledge ages but remains useful.
+ * - `digest`: Short-lived — session digests are transient summaries.
+ * - `profile`: Permanent — user preferences never expire.
+ */
+export interface RetentionTTL {
+  /** Days before a decision record expires. Default: 365 (1 year). */
+  readonly decisionDays: number;
+  /** Days before a pattern record expires. Default: 365 (1 year). */
+  readonly patternDays: number;
+  /** Days before a fact record expires. Default: 180 (6 months). */
+  readonly factDays: number;
+  /** Days before a digest record expires. Default: 30 (1 month). */
+  readonly digestDays: number;
+  /** Days before a profile record expires. Default: 0 (never expires). */
+  readonly profileDays: number;
+}
+
+/**
+ * Retention policy configuration.
+ *
+ * Controls automatic eviction of old or low-value records.
+ * The policy is data-driven, not scattered if-statements.
+ */
+export interface RetentionConfig {
+  /** Enable automatic retention runs. */
+  readonly enabled: boolean;
+  /** Per-kind TTL in days. Set any value to 0 to disable TTL for that kind. */
+  readonly ttl: RetentionTTL;
+  /** Hard maximum records per project. 0 = unlimited. Default: 2000. */
+  readonly maxRecordsPerProject: number;
+  /** Hard maximum records globally. 0 = unlimited. Default: 5000. */
+  readonly maxRecordsGlobal: number;
+  /** Maximum records examined per retention run (bounded work). Default: 500. */
+  readonly batchSize: number;
+}
+
+/**
  * Storage backend configuration.
  */
 export type StoreMode = "sqlite";
@@ -77,6 +119,8 @@ export interface ResidueOptions {
   store: StoreMode;
   /** Report settings. */
   report: ReportConfig;
+  /** Retention policy settings. */
+  retention: RetentionConfig;
   /** Where to store data files. */
   dataDir: DataDirMode;
   /** Enable debug logging. */
@@ -101,6 +145,19 @@ export const DEFAULT_OPTIONS: ResidueOptions = {
     enabled: false,
     maxPerSessionPer5min: 1,
   },
+  retention: {
+    enabled: true,
+    ttl: {
+      decisionDays: 365,
+      patternDays: 365,
+      factDays: 180,
+      digestDays: 30,
+      profileDays: 0,
+    },
+    maxRecordsPerProject: 2000,
+    maxRecordsGlobal: 5000,
+    batchSize: 500,
+  },
   dataDir: "xdg",
   debug: false,
 };
@@ -117,6 +174,7 @@ const KNOWN_KEYS = new Set([
   "inject",
   "store",
   "report",
+  "retention",
   "dataDir",
   "debug",
 ]);
@@ -241,6 +299,58 @@ export function resolveOptions(
     result.report = repResult;
   } else if (input["report"] !== undefined) {
     warn(`[residue] Invalid report config — using defaults`);
+  }
+
+  // retention (nested object)
+  if (isRecord(input["retention"])) {
+    const ret = input["retention"] as Record<string, unknown>;
+    const retResult = { ...DEFAULT_OPTIONS.retention };
+    const ttlResult = { ...DEFAULT_OPTIONS.retention.ttl };
+
+    if (typeof ret["enabled"] === "boolean") retResult.enabled = ret["enabled"];
+    if (typeof ret["maxRecordsPerProject"] === "number" && ret["maxRecordsPerProject"] >= 0) {
+      retResult.maxRecordsPerProject = Math.floor(ret["maxRecordsPerProject"]);
+    }
+    if (typeof ret["maxRecordsGlobal"] === "number" && ret["maxRecordsGlobal"] >= 0) {
+      retResult.maxRecordsGlobal = Math.floor(ret["maxRecordsGlobal"]);
+    }
+    if (typeof ret["batchSize"] === "number" && ret["batchSize"] > 0) {
+      retResult.batchSize = Math.floor(ret["batchSize"]);
+    }
+
+    // Validate known retention keys
+    const KNOWN_RETENTION_KEYS = new Set(["enabled", "ttl", "maxRecordsPerProject", "maxRecordsGlobal", "batchSize"]);
+    for (const key of Object.keys(ret)) {
+      if (!KNOWN_RETENTION_KEYS.has(key)) {
+        warn(`[residue] Unknown retention option key "${key}" — ignored`);
+      }
+    }
+
+    // TTL (nested object inside retention)
+    if (isRecord(ret["ttl"])) {
+      const ttl = ret["ttl"] as Record<string, unknown>;
+
+      if (typeof ttl["decisionDays"] === "number" && ttl["decisionDays"] >= 0) {
+        ttlResult.decisionDays = Math.floor(ttl["decisionDays"]);
+      }
+      if (typeof ttl["patternDays"] === "number" && ttl["patternDays"] >= 0) {
+        ttlResult.patternDays = Math.floor(ttl["patternDays"]);
+      }
+      if (typeof ttl["factDays"] === "number" && ttl["factDays"] >= 0) {
+        ttlResult.factDays = Math.floor(ttl["factDays"]);
+      }
+      if (typeof ttl["digestDays"] === "number" && ttl["digestDays"] >= 0) {
+        ttlResult.digestDays = Math.floor(ttl["digestDays"]);
+      }
+      if (typeof ttl["profileDays"] === "number" && ttl["profileDays"] >= 0) {
+        ttlResult.profileDays = Math.floor(ttl["profileDays"]);
+      }
+    }
+
+    retResult.ttl = ttlResult;
+    result.retention = retResult;
+  } else if (input["retention"] !== undefined) {
+    warn(`[residue] Invalid retention config — using defaults`);
   }
 
   // dataDir

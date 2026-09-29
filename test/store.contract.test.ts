@@ -284,6 +284,315 @@ for (const impl of implementations) {
         await expect(store.close()).resolves.toBeUndefined();
       });
     });
+
+    describe("get", () => {
+      it("retrieves a record by ID", async () => {
+        const inserted = await store.insert(makeDraft({ content: "Gettable record" }));
+        const fetched = await store.get(inserted.id);
+
+        expect(fetched).not.toBeNull();
+        expect(fetched!.id).toBe(inserted.id);
+        expect(fetched!.content).toBe("Gettable record");
+      });
+
+      it("returns null for nonexistent ID", async () => {
+        const result = await store.get("nonexistent-id");
+        expect(result).toBeNull();
+      });
+
+      it("returns all new fields correctly", async () => {
+        const inserted = await store.insert(makeDraft({
+          content: "Full fields record",
+          kind: "decision",
+        }));
+        const fetched = await store.get(inserted.id);
+
+        expect(fetched).not.toBeNull();
+        expect(fetched!.confidence).toBe(0.6);
+        expect(fetched!.created_at).toBeGreaterThan(0);
+        expect(fetched!.last_access).toBeGreaterThan(0);
+        expect(fetched!.access_count).toBe(0);
+        expect(fetched!.superseded_by).toBeNull();
+      });
+    });
+
+    describe("update", () => {
+      it("updates content and returns the updated record", async () => {
+        const inserted = await store.insert(makeDraft({ content: "Original content" }));
+        const updated = await store.update(inserted.id, { content: "Updated content" });
+
+        expect(updated).not.toBeNull();
+        expect(updated!.content).toBe("Updated content");
+        expect(updated!.id).toBe(inserted.id);
+      });
+
+      it("updates tags", async () => {
+        const inserted = await store.insert(makeDraft({
+          content: "Tagged record",
+          tags: ["old-tag"],
+        }));
+        const updated = await store.update(inserted.id, { tags: ["new-tag", "extra"] });
+
+        expect(updated).not.toBeNull();
+        expect(updated!.tags).toEqual(["new-tag", "extra"]);
+      });
+
+      it("updates confidence", async () => {
+        const inserted = await store.insert(makeDraft({ content: "Confidence record" }));
+        const updated = await store.update(inserted.id, { confidence: 0.9 });
+
+        expect(updated).not.toBeNull();
+        expect(updated!.confidence).toBe(0.9);
+      });
+
+      it("updates superseded_by", async () => {
+        const old = await store.insert(makeDraft({ content: "Old record" }));
+        const updated = await store.update(old.id, { superseded_by: "new-record-id" });
+
+        expect(updated).not.toBeNull();
+        expect(updated!.superseded_by).toBe("new-record-id");
+      });
+
+      it("returns null for nonexistent ID", async () => {
+        const result = await store.update("nonexistent", { content: "nope" });
+        expect(result).toBeNull();
+      });
+
+      it("preserves unchanged fields", async () => {
+        const inserted = await store.insert(makeDraft({
+          content: "Preserve me",
+          kind: "pattern",
+          tags: ["keep"],
+        }));
+        const updated = await store.update(inserted.id, { content: "New content" });
+
+        expect(updated).not.toBeNull();
+        expect(updated!.kind).toBe("pattern");
+        expect(updated!.tags).toEqual(["keep"]);
+        expect(updated!.scope).toBe("project");
+      });
+    });
+
+    describe("remove", () => {
+      it("removes a record by ID and returns true", async () => {
+        const inserted = await store.insert(makeDraft({ content: "Remove me" }));
+        const result = await store.remove(inserted.id);
+
+        expect(result).toBe(true);
+        const fetched = await store.get(inserted.id);
+        expect(fetched).toBeNull();
+      });
+
+      it("returns false for nonexistent ID", async () => {
+        const result = await store.remove("nonexistent");
+        expect(result).toBe(false);
+      });
+
+      it("does not affect other records", async () => {
+        const r1 = await store.insert(makeDraft({ content: "Keep me" }));
+        const r2 = await store.insert(makeDraft({ content: "Remove me" }));
+
+        await store.remove(r2.id);
+
+        const fetched = await store.get(r1.id);
+        expect(fetched).not.toBeNull();
+      });
+    });
+
+    describe("removeMany", () => {
+      it("removes multiple records and returns count", async () => {
+        const r1 = await store.insert(makeDraft({ content: "Record A" }));
+        const r2 = await store.insert(makeDraft({ content: "Record B" }));
+        const r3 = await store.insert(makeDraft({ content: "Record C" }));
+
+        const removed = await store.removeMany([r1.id, r2.id]);
+        expect(removed).toBe(2);
+
+        expect(await store.get(r1.id)).toBeNull();
+        expect(await store.get(r2.id)).toBeNull();
+        expect(await store.get(r3.id)).not.toBeNull();
+      });
+
+      it("returns 0 for empty array", async () => {
+        const removed = await store.removeMany([]);
+        expect(removed).toBe(0);
+      });
+
+      it("handles nonexistent IDs gracefully", async () => {
+        const r1 = await store.insert(makeDraft({ content: "Real record" }));
+        const removed = await store.removeMany([r1.id, "fake-id-1", "fake-id-2"]);
+        expect(removed).toBe(1);
+      });
+    });
+
+    describe("scan", () => {
+      it("returns records ordered by created_at DESC", async () => {
+        const oldTime = Date.now() - 10_000;
+        const newTime = Date.now();
+
+        await store.insert(makeDraft({ content: "Older", created_at: oldTime }));
+        await store.insert(makeDraft({ content: "Newer", created_at: newTime }));
+
+        const results = await store.scan({ scope: bothScope() });
+        expect(results.length).toBe(2);
+        expect(results[0]!.content).toBe("Newer");
+        expect(results[1]!.content).toBe("Older");
+      });
+
+      it("filters by kind", async () => {
+        await store.insert(makeDraft({ content: "Fact record", kind: "fact" }));
+        await store.insert(makeDraft({ content: "Decision record", kind: "decision" }));
+
+        const facts = await store.scan({ scope: bothScope(), kind: "fact" });
+        expect(facts.length).toBe(1);
+        expect(facts[0]!.kind).toBe("fact");
+      });
+
+      it("filters by since", async () => {
+        const oldTime = Date.now() - 100_000;
+        const newTime = Date.now();
+
+        await store.insert(makeDraft({ content: "Old", created_at: oldTime }));
+        await store.insert(makeDraft({ content: "New", created_at: newTime }));
+
+        const results = await store.scan({ scope: bothScope(), since: newTime - 1000 });
+        expect(results.length).toBe(1);
+        expect(results[0]!.content).toBe("New");
+      });
+
+      it("respects limit and offset", async () => {
+        for (let i = 0; i < 10; i++) {
+          await store.insert(makeDraft({ content: `Record ${i}`, created_at: Date.now() + i }));
+        }
+
+        const page1 = await store.scan({ scope: bothScope(), limit: 3, offset: 0 });
+        const page2 = await store.scan({ scope: bothScope(), limit: 3, offset: 3 });
+        expect(page1.length).toBe(3);
+        expect(page2.length).toBe(3);
+        expect(page1[0]!.id).not.toBe(page2[0]!.id);
+      });
+    });
+
+    describe("stats", () => {
+      it("returns correct total and byKind", async () => {
+        await store.insert(makeDraft({ content: "Fact 1", kind: "fact" }));
+        await store.insert(makeDraft({ content: "Fact 2", kind: "fact" }));
+        await store.insert(makeDraft({ content: "Decision 1", kind: "decision" }));
+
+        const stats = await store.stats(bothScope());
+        expect(stats.total).toBe(3);
+        expect(stats.byKind["fact"]).toBe(2);
+        expect(stats.byKind["decision"]).toBe(1);
+      });
+
+      it("returns null oldest/newest for empty store", async () => {
+        const stats = await store.stats(bothScope());
+        expect(stats.total).toBe(0);
+        expect(stats.oldest).toBeNull();
+        expect(stats.newest).toBeNull();
+      });
+
+      it("returns correct oldest and newest", async () => {
+        const oldTime = Date.now() - 50_000;
+        const newTime = Date.now();
+
+        await store.insert(makeDraft({ content: "Old", created_at: oldTime }));
+        await store.insert(makeDraft({ content: "New", created_at: newTime }));
+
+        const stats = await store.stats(bothScope());
+        expect(stats.oldest).toBe(oldTime);
+        expect(stats.newest).toBe(newTime);
+      });
+    });
+
+    describe("touch", () => {
+      it("updates last_access and increments access_count", async () => {
+        const inserted = await store.insert(makeDraft({ content: "Touch me" }));
+        const original = await store.get(inserted.id);
+        expect(original!.access_count).toBe(0);
+
+        await store.touch(inserted.id);
+        const touched = await store.get(inserted.id);
+        expect(touched!.access_count).toBe(1);
+        expect(touched!.last_access).toBeGreaterThanOrEqual(original!.last_access);
+
+        await store.touch(inserted.id);
+        const doubleTouched = await store.get(inserted.id);
+        expect(doubleTouched!.access_count).toBe(2);
+      });
+
+      it("does nothing for nonexistent ID", async () => {
+        // Should not throw
+        await store.touch("nonexistent");
+      });
+    });
+
+    describe("supersede", () => {
+      it("marks a record as superseded", async () => {
+        const old = await store.insert(makeDraft({ content: "Old record" }));
+        await store.supersede(old.id, "new-record-id");
+
+        const fetched = await store.get(old.id);
+        expect(fetched!.superseded_by).toBe("new-record-id");
+      });
+
+      it("does nothing for nonexistent ID", async () => {
+        // Should not throw
+        await store.supersede("nonexistent", "new-id");
+      });
+    });
+
+    describe("FTS5 consistency", () => {
+      it("update changes content and old text no longer matches", async () => {
+        const inserted = await store.insert(makeDraft({
+          content: "Unique banana bread recipe",
+        }));
+
+        // Verify original text is searchable
+        const before = await store.search("banana bread", null, bothScope(), 10);
+        expect(before.length).toBeGreaterThanOrEqual(1);
+        expect(before[0]!.record.id).toBe(inserted.id);
+
+        // Update content
+        await store.update(inserted.id, { content: "Unique chocolate cake recipe" });
+
+        // New text should be searchable
+        const afterNew = await store.search("chocolate cake", null, bothScope(), 10);
+        expect(afterNew.length).toBeGreaterThanOrEqual(1);
+        expect(afterNew[0]!.record.id).toBe(inserted.id);
+
+        // Old text should NOT match
+        const afterOld = await store.search("banana bread", null, bothScope(), 10);
+        // For SqliteStore, old FTS entry is deleted; for InMemoryStore, text match is on current content
+        for (const hit of afterOld) {
+          expect(hit.record.id).not.toBe(inserted.id);
+        }
+      });
+    });
+
+    describe("remove cleans up FTS and vectors", () => {
+      it("removed record is absent from search", async () => {
+        const inserted = await store.insert(makeDraft({
+          content: "Findable unique record about quantum computing",
+        }));
+
+        // Verify it's searchable
+        const before = await store.search("quantum computing", null, bothScope(), 10);
+        expect(before.length).toBeGreaterThanOrEqual(1);
+
+        // Remove it
+        await store.remove(inserted.id);
+
+        // Should no longer appear in search
+        const after = await store.search("quantum computing", null, bothScope(), 10);
+        for (const hit of after) {
+          expect(hit.record.id).not.toBe(inserted.id);
+        }
+
+        // And should not be gettable
+        expect(await store.get(inserted.id)).toBeNull();
+      });
+    });
   });
 }
 

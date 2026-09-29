@@ -12,10 +12,12 @@ import type { ResolvedScope } from "../core/ports.js";
 import type { ResidueOptions } from "../config.js";
 import type { Logger } from "../log.js";
 import { buildScopePredicate } from "../scope.js";
-import { STATUS_TOOL_SCHEMA, SEARCH_TOOL_SCHEMA, ADD_TOOL_SCHEMA } from "./schemas.js";
+import { STATUS_TOOL_SCHEMA, SEARCH_TOOL_SCHEMA, ADD_TOOL_SCHEMA, FORGET_TOOL_SCHEMA, PROFILE_TOOL_SCHEMA } from "./schemas.js";
 import { buildStatusResponse } from "./status.js";
 import { executeSearch, type SearchDeps } from "./search.js";
 import { executeAdd, type AddDeps } from "./add.js";
+import { executeForget, type ForgetDeps } from "./forget.js";
+import { executeProfile, type ProfileDeps } from "./profile.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,6 +196,68 @@ export async function registerTools(
       },
     });
 
-    logger.info("[residue] tools registered: res_status, res_search, res_add");
+    // --- res_forget ---
+    editor.add({
+      name: "forget",
+      description:
+        "Preview and delete memory records. Two-step workflow: first preview (confirm=false), " +
+        "then delete (confirm=true). No code path can truncate the store without id or query.",
+      input: FORGET_TOOL_SCHEMA,
+      options: { namespace: "res" },
+      execute: async (input, context) => {
+        const forgetDeps: ForgetDeps = {
+          store: deps.store,
+          embedder: deps.embedder,
+          resolved: deps.resolved,
+          options,
+          logger,
+        };
+
+        try {
+          return await executeForget(
+            input as unknown as Parameters<typeof executeForget>[0],
+            context as unknown as Parameters<typeof executeForget>[1],
+            forgetDeps,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`res_forget failed: ${msg}`);
+          return { content: `Forget failed: ${msg}` };
+        }
+      },
+    });
+
+    // --- res_profile ---
+    editor.add({
+      name: "profile",
+      description:
+        "Read-only cross-project aggregated view of durable preferences and patterns. " +
+        "Shows counts by kind, most-accessed entries, and dominant tags.",
+      input: PROFILE_TOOL_SCHEMA,
+      options: { namespace: "res" },
+      execute: async (input, context) => {
+        const profileDeps: ProfileDeps = {
+          store: deps.store,
+          embedder: deps.embedder,
+          resolved: deps.resolved,
+          options,
+          logger,
+        };
+
+        try {
+          return await executeProfile(
+            input as unknown as Parameters<typeof executeProfile>[0],
+            context as unknown as Parameters<typeof executeProfile>[1],
+            profileDeps,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`res_profile failed: ${msg}`);
+          return { content: `Profile failed: ${msg}` };
+        }
+      },
+    });
+
+    logger.info("[residue] tools registered: res_status, res_search, res_add, res_forget, res_profile");
   });
 }

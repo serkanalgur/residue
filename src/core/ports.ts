@@ -4,7 +4,7 @@
  * @module core/ports
  */
 
-import type { MemoryDraft, MemoryRecord, SearchHit } from "./types.js";
+import type { MemoryDraft, MemoryKind, MemoryPatch, MemoryRecord, SearchHit } from "./types.js";
 
 /** Scope predicate parameters for SQL WHERE clauses. */
 export interface ScopePredicate {
@@ -26,6 +26,36 @@ export interface ResolvedScope {
   readonly canonicalDir: string;
 }
 
+/** Options for the `scan` method. */
+export interface ScanOptions {
+  /** Scope predicate to filter records. */
+  readonly scope: ScopePredicate;
+  /** Optional kind filter. */
+  readonly kind?: MemoryKind;
+  /** Only records created on or after this epoch ms. */
+  readonly since?: number;
+  /** Only records created on or before this epoch ms. */
+  readonly until?: number;
+  /** Maximum number of records to return. */
+  readonly limit?: number;
+  /** Number of records to skip (for pagination). */
+  readonly offset?: number;
+}
+
+/** Aggregated store statistics. */
+export interface StoreStats {
+  /** Total number of records matching the scope. */
+  readonly total: number;
+  /** Record count broken down by kind. */
+  readonly byKind: Readonly<Record<MemoryKind, number>>;
+  /** Epoch ms of the oldest record, or null if no records. */
+  readonly oldest: number | null;
+  /** Epoch ms of the newest record, or null if no records. */
+  readonly newest: number | null;
+  /** Approximate database size in bytes (0 for in-memory store). */
+  readonly dbBytes: number;
+}
+
 /**
  * Persistent storage backend for memory records.
  *
@@ -39,6 +69,18 @@ export interface MemoryStore {
   /** Insert a memory draft and return the persisted record. */
   insert(draft: MemoryDraft): Promise<MemoryRecord>;
 
+  /** Retrieve a single record by ID, or null if not found. */
+  get(id: string): Promise<MemoryRecord | null>;
+
+  /** Update a record by ID with a partial patch. Returns the updated record or null. */
+  update(id: string, patch: MemoryPatch): Promise<MemoryRecord | null>;
+
+  /** Remove a single record by ID. Returns true if removed, false if not found. */
+  remove(id: string): Promise<boolean>;
+
+  /** Remove multiple records by ID. Returns the count removed. Transactional. */
+  removeMany(ids: readonly string[]): Promise<number>;
+
   /** Search for relevant records using hybrid (vector + FTS5) retrieval. */
   search(
     query: string,
@@ -49,6 +91,18 @@ export interface MemoryStore {
 
   /** Count records matching a scope predicate. */
   count(scope: ScopePredicate): Promise<number>;
+
+  /** List records under a scope predicate with filters, ordered by created_at DESC. */
+  scan(options: ScanOptions): Promise<readonly MemoryRecord[]>;
+
+  /** Get aggregated statistics about records in a scope. */
+  stats(scope: ScopePredicate): Promise<StoreStats>;
+
+  /** Update last_access and increment access_count for a record. */
+  touch(id: string): Promise<void>;
+
+  /** Mark a record as superseded by another record. */
+  supersede(oldId: string, newId: string): Promise<void>;
 
   /** Close the underlying connection. */
   close(): Promise<void>;

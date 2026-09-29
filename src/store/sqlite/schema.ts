@@ -10,7 +10,7 @@
 import type { SqliteDatabase } from "./driver.js";
 
 /** Current schema version — incremented on DDL changes. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * SQL statements to initialize the database schema.
@@ -45,7 +45,13 @@ const DDL_STATEMENTS = [
     CHECK ((scope='global' AND project_id IS NULL) OR
            (scope='project' AND project_id IS NOT NULL))
   )`,
+];
 
+/**
+ * SQL statements for indexes. Run AFTER migrations so columns added
+ * by migrations are guaranteed to exist.
+ */
+const INDEX_STATEMENTS = [
   // Scope index for filtered queries
   `CREATE INDEX IF NOT EXISTS ix_scope ON memory(scope, project_id)`,
 
@@ -93,14 +99,28 @@ export function initFts5(db: SqliteDatabase): boolean {
  * Initialize the database schema.
  *
  * Runs all DDL statements, sets schema version, and checks FTS5 availability.
+ * Runs incremental migrations for schema versions > 1.
  * Idempotent — safe to call multiple times.
  *
  * @param db - Database instance.
  * @returns Object indicating FTS5 availability and schema version.
  */
 export function initSchema(db: SqliteDatabase): { fts5Available: boolean; schemaVersion: number } {
-  // Run all DDL statements
+  // Read current schema version (0 if fresh database)
+  const currentVersion = readSchemaVersion(db);
+
+  // Run table creation DDL (idempotent — CREATE TABLE IF NOT EXISTS)
   for (const sql of DDL_STATEMENTS) {
+    db.run(sql);
+  }
+
+  // Run incremental migrations (may add new columns)
+  if (currentVersion < 2) {
+    migrateV1ToV2(db);
+  }
+
+  // Run index creation AFTER migrations so new columns exist
+  for (const sql of INDEX_STATEMENTS) {
     db.run(sql);
   }
 
@@ -114,6 +134,60 @@ export function initSchema(db: SqliteDatabase): { fts5Available: boolean; schema
   const fts5Available = checkFts5(db) && initFts5(db);
 
   return { fts5Available, schemaVersion: SCHEMA_VERSION };
+}
+
+/**
+ * Read the current schema version from the meta table.
+ *
+ * @param db - Database instance.
+ * @returns Current schema version, or 0 if not set.
+ */
+function readSchemaVersion(db: SqliteDatabase): number {
+  try {
+    const row = db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as
+      | { v: string }
+      | undefined;
+    return row ? Number.parseInt(row.v, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Migration: v1 → v2
+ *
+ * Adds access tracking columns (confidence, created_at, last_access, access_count,
+ * superseded_by) to the memory table, plus an index on superseded_by.
+ * All statements use IF NOT EXISTS for idempotency.
+ * Existing data is preserved — new columns get sensible defaults.
+ *
+ * @param db - Database instance.
+ */
+function migrateV1ToV2(db: SqliteDatabase): void {
+  // Add columns with defaults for existing rows.
+  // SQLite supports ALTER TABLE ADD COLUMN with DEFAULT, which fills existing rows.
+  const migrations = [
+    "ALTER TABLE memory ADD COLUMN confidence REAL NOT NULL DEFAULT 0.6",
+    "ALTER TABLE memory ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memory ADD COLUMN last_access INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memory ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memory ADD COLUMN superseded_by TEXT",
+  ];
+
+  for (const sql of migrations) {
+    try {
+      db.run(sql);
+    } catch {
+      // Column already exists — idempotent
+    }
+  }
+
+  // Add index on superseded_by for efficient lookup of superseded records
+  try {
+    db.run("CREATE INDEX IF NOT EXISTS ix_superseded ON memory(superseded_by)");
+  } catch {
+    // Index already exists
+  }
 }
 
 /**

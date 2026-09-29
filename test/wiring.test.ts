@@ -137,11 +137,13 @@ describe("Wiring — tool registration", () => {
       silentLog,
     );
 
-    // All three tools should be registered
+    // All five tools should be registered
     expect(registeredTools).toContain("status");
     expect(registeredTools).toContain("search");
     expect(registeredTools).toContain("add");
-    expect(registeredTools.length).toBe(3);
+    expect(registeredTools).toContain("forget");
+    expect(registeredTools).toContain("profile");
+    expect(registeredTools.length).toBe(5);
 
     // Namespace should be "res"
     expect(namespaceName).toBe("res");

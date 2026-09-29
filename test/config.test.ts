@@ -24,6 +24,7 @@ describe("resolveOptions", () => {
     expect(() => resolveOptions({ embedding: 123 })).not.toThrow();
     expect(() => resolveOptions({ inject: "bad" })).not.toThrow();
     expect(() => resolveOptions({ report: [1, 2, 3] })).not.toThrow();
+    expect(() => resolveOptions({ retention: "bad" })).not.toThrow();
   });
 
   it("deep merges valid nested inject options", () => {
@@ -98,6 +99,40 @@ describe("resolveOptions", () => {
     expect(result.embedding).toBe("none");
     expect(result.debug).toBe(true);
     expect(result.store).toBe("sqlite");
+  });
+
+  it("deep merges valid nested retention options", () => {
+    const result = resolveOptions({
+      retention: {
+        maxRecordsPerProject: 500,
+        ttl: {
+          factDays: 90,
+          digestDays: 7,
+        },
+      },
+    });
+
+    expect(result.retention.enabled).toBe(true);
+    expect(result.retention.maxRecordsPerProject).toBe(500);
+    expect(result.retention.ttl.factDays).toBe(90);
+    expect(result.retention.ttl.digestDays).toBe(7);
+    // Preserved from defaults
+    expect(result.retention.ttl.decisionDays).toBe(365);
+    expect(result.retention.ttl.profileDays).toBe(0);
+    expect(result.retention.batchSize).toBe(500);
+  });
+
+  it("rejects negative TTL values", () => {
+    const result = resolveOptions({
+      retention: { ttl: { factDays: -1 } },
+    });
+    expect(result.retention.ttl.factDays).toBe(DEFAULT_OPTIONS.retention.ttl.factDays);
+  });
+
+  it("warns about unknown retention keys", () => {
+    const warnings: string[] = [];
+    resolveOptions({ retention: { unknownRetentionKey: true } }, (msg) => warnings.push(msg));
+    expect(warnings.some((w) => w.includes("unknownRetentionKey"))).toBe(true);
   });
 });
 
