@@ -17,6 +17,8 @@
 
 [Installation](#installation) • [Configuration](#configuration) • [How It Works](#how-it-works) • [Tools](#tools) • [Privacy & Security](#privacy--security) • [Differences from opencode-mem](#differences-from-opencode-mem) • [Development](#development) • [License](#license)
 
+> **[Changelog](./CHANGELOG.md)** — release history and what changed in each version.
+
 </div>
 
 ---

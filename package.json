@@ -1,6 +1,6 @@
 {
   "name": "@serkanalgur/residue",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Persistent, local-first project memory for OpenCode — extracts atomic 'decision + reason' facts from sessions and injects relevant notes via context hooks.",
   "keywords": [
     "opencode",
@@ -35,7 +35,8 @@
     "src/",
     "README.md",
     "LICENSE",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { readFile } from "node:fs/promises";
 import pkg from "../package.json" with { type: "json" };
 
 describe("Package metadata — scoped name", () => {
@@ -105,5 +106,22 @@ describe("Package metadata — exports map", () => {
     const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;
     expect(pkg.version).toMatch(SEMVER_RE);
     expect(pkg.version).not.toBe("0.0.0");
+  });
+});
+
+describe("Package metadata — changelog", () => {
+  it("files includes CHANGELOG.md", () => {
+    expect(pkg.files).toContain("CHANGELOG.md");
+  });
+
+  it("version is a valid semver string and is not 0.0.0", () => {
+    const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;
+    expect(pkg.version).toMatch(SEMVER_RE);
+    expect(pkg.version).not.toBe("0.0.0");
+  });
+
+  it("README contains a link to the changelog", async () => {
+    const readme = await readFile("README.md", "utf-8");
+    expect(readme).toContain("CHANGELOG.md");
   });
 });
