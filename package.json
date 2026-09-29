@@ -1,6 +1,6 @@
 {
   "name": "@serkanalgur/residue",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Persistent, local-first project memory for OpenCode — extracts atomic 'decision + reason' facts from sessions and injects relevant notes via context hooks.",
   "keywords": [
     "opencode",
@@ -24,7 +24,8 @@
   "author": "serkanalgur",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
   },
   "main": "index.js",
   "directories": {

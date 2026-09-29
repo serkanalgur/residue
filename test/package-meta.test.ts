@@ -69,3 +69,41 @@ describe("Package metadata — files allowlist", () => {
     expect(pkg.files).toContain(exportDir);
   });
 });
+
+describe("Package metadata — exports map", () => {
+  it('exports["."] points at ./src/index.ts', () => {
+    expect(pkg.exports["."]).toBe("./src/index.ts");
+  });
+
+  it('exports["./package.json"] points at ./package.json', () => {
+    expect(pkg.exports["./package.json"]).toBe("./package.json");
+  });
+
+  it("every export value is covered by the files allowlist (or implicitly included)", () => {
+    // npm always includes package.json regardless of the files array, so treat
+    // it as implicitly covered even though it is not listed in files.
+    const IMPLICITLY_INCLUDED = new Set(["package.json"]);
+
+    for (const [key, target] of Object.entries(pkg.exports)) {
+      const relative = (target as string).replace(/^\.\//, "");
+
+      if (IMPLICITLY_INCLUDED.has(relative)) continue;
+
+      // Extract the top-level directory or exact filename from the target path.
+      const segments = relative.split("/");
+      const dirOrFile = segments.length > 1 ? segments[0] + "/" : relative;
+
+      expect(
+        pkg.files,
+        `Export "${key}" -> "${target}" is not covered by the files allowlist`,
+      ).toContain(dirOrFile);
+    }
+  });
+
+  it("version is a valid semver string and is not 0.0.0", () => {
+    // Strict semver: MAJOR.MINOR.PATCH with optional pre-release / build metadata.
+    const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;
+    expect(pkg.version).toMatch(SEMVER_RE);
+    expect(pkg.version).not.toBe("0.0.0");
+  });
+});
