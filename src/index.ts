@@ -15,11 +15,13 @@ import { resolveScope } from "./scope.js";
 import { registerTools } from "./tools/register.js";
 import { registerInjection } from "./inject/index.js";
 import { registerIngestion } from "./ingest/subscribe.js";
+import { registerWorktreeSync } from "./worktree.js";
 import { createTurnBuffer, DEFAULT_BUFFER_CONFIG } from "./ingest/buffer.js";
 import { DEFAULT_INGEST_OPTIONS } from "./ingest/types.js";
 import { createStore } from "./store/factory.js";
 import { resolveEmbedder } from "./embed/registry.js";
 import { buildScopePredicate } from "./scope.js";
+import { runGlobalRetention } from "./retention.js";
 
 /** Plugin version — kept in sync with package.json. */
 const PLUGIN_VERSION = "0.1.0";
@@ -108,6 +110,17 @@ export default Plugin.define({
         log,
       );
 
+      // Register worktree lifecycle sync (demotes stale worktree_key values)
+      const cleanupWorktree = registerWorktreeSync(
+        ctx,
+        { store },
+        { debounceMs: 500 },
+        log,
+      );
+
+      // Enforce global row cap on startup (catches leftovers from previous sessions)
+      void runGlobalRetention(store, options.retention, globalScope, log);
+
       // Register ingestion pipeline (session idle → extraction → store)
       const turnBuffer = createTurnBuffer(DEFAULT_BUFFER_CONFIG);
       const cleanupIngestion = registerIngestion(
@@ -136,6 +149,7 @@ export default Plugin.define({
 
       // Cleanup function
       return () => {
+        cleanupWorktree();
         cleanupIngestion();
         cleanupInjection();
         void store.close();

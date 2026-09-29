@@ -9,7 +9,7 @@
  */
 
 import type { MemoryDraft, MemoryKind, MemoryPatch, MemoryRecord, SearchHit } from "../core/types.js";
-import type { MemoryStore, ScopePredicate, ScanOptions, StoreStats } from "../core/ports.js";
+import type { MemoryStore, ScopePredicate, ScanOptions, StoreStats, Embedder } from "../core/ports.js";
 import { newId } from "../util/ids.js";
 import { cosine } from "../embed/normalize.js";
 
@@ -21,6 +21,16 @@ import { cosine } from "../embed/normalize.js";
  */
 export class InMemoryStore implements MemoryStore {
   private records: Map<string, MemoryRecord> = new Map();
+  private embedder: Embedder | null;
+
+  /**
+   * Create a new InMemoryStore.
+   *
+   * @param embedder - Optional embedder for re-embedding on update. Null = no embeddings.
+   */
+  constructor(embedder: Embedder | null = null) {
+    this.embedder = embedder;
+  }
 
   /** @inheritdoc */
   async initialize(): Promise<void> {
@@ -105,6 +115,28 @@ export class InMemoryStore implements MemoryStore {
   }
 
   /** @inheritdoc */
+  async demoteWorktreeKey(projectId: string, worktreeKey: string): Promise<number> {
+    let demoted = 0;
+    for (const [id, record] of this.records) {
+      if (
+        record.scope === "project" &&
+        record.project_id === projectId &&
+        record.worktree_key === worktreeKey
+      ) {
+        const updated: MemoryRecord = {
+          ...record,
+          worktree_key: "",
+        };
+        // Set worktree_key to empty string to represent NULL
+        // (in-memory store uses empty string as the NULL equivalent)
+        this.records.set(id, updated);
+        demoted++;
+      }
+    }
+    return demoted;
+  }
+
+  /** @inheritdoc */
   async close(): Promise<void> {
     this.records.clear();
   }
@@ -119,9 +151,23 @@ export class InMemoryStore implements MemoryStore {
     const existing = this.records.get(id);
     if (!existing) return null;
 
+    const newContent = patch.content ?? existing.content;
+    let newEmbedding = existing.embedding;
+
+    // Re-embed if content changed and embedder is available
+    if (this.embedder && patch.content !== undefined && patch.content !== existing.content) {
+      try {
+        const result = await this.embedder.embed(patch.content);
+        newEmbedding = result;
+      } catch {
+        // Re-embedding failure is non-fatal — keep existing embedding
+      }
+    }
+
     const updated: MemoryRecord = {
       ...existing,
-      content: patch.content ?? existing.content,
+      content: newContent,
+      embedding: newEmbedding,
       tags: patch.tags ?? existing.tags,
       confidence: patch.confidence ?? existing.confidence,
       superseded_by:
@@ -316,10 +362,12 @@ function matchesPredicate(
     where.includes("project_id = :pid") &&
     where.includes("worktree_key = :wk")
   ) {
+    // A record with empty/null worktree_key is demoted (widened scope) — it matches any worktree.
+    const wkEmpty = record.worktree_key === "" || record.worktree_key === null;
     return (
       record.scope === "project" &&
       record.project_id === scope.params[":pid"] &&
-      record.worktree_key === scope.params[":wk"]
+      (wkEmpty || record.worktree_key === scope.params[":wk"])
     );
   }
 
@@ -342,10 +390,11 @@ function matchesPredicate(
     where.includes("worktree_key")
   ) {
     if (record.scope === "global") return true;
+    const wkEmpty = record.worktree_key === "" || record.worktree_key === null;
     return (
       record.scope === "project" &&
       record.project_id === scope.params[":pid"] &&
-      record.worktree_key === scope.params[":wk"]
+      (wkEmpty || record.worktree_key === scope.params[":wk"])
     );
   }
 

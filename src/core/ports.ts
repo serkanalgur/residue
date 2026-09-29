@@ -104,6 +104,19 @@ export interface MemoryStore {
   /** Mark a record as superseded by another record. */
   supersede(oldId: string, newId: string): Promise<void>;
 
+  /**
+   * Demote records: set worktree_key to NULL for all project-scoped records
+   * matching a specific project_id and worktree_key.
+   *
+   * Used by worktree lifecycle to widen scope when a worktree is removed.
+   * Records are NOT deleted — their worktree association is dissolved.
+   *
+   * @param projectId - Project ID to demote within.
+   * @param worktreeKey - Worktree key whose records should be demoted.
+   * @returns Number of records demoted.
+   */
+  demoteWorktreeKey(projectId: string, worktreeKey: string): Promise<number>;
+
   /** Close the underlying connection. */
   close(): Promise<void>;
 }

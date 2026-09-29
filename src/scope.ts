@@ -141,7 +141,7 @@ export function buildScopePredicate(
  * @returns Whether the record is visible in this scope.
  */
 export function matchesScope(
-  record: { scope: string; project_id: string | null; worktree_key: string },
+  record: { scope: string; project_id: string | null; worktree_key: string | null },
   resolved: ResolvedScope,
   options: { inject: { shareAcrossWorktrees: boolean } },
 ): boolean {
@@ -157,6 +157,11 @@ export function matchesScope(
 
   // If sharing across worktrees, only project_id match is needed
   if (options.inject.shareAcrossWorktrees) {
+    return true;
+  }
+
+  // Demoted records (worktree_key is null/empty) match any worktree — their scope was widened.
+  if (!record.worktree_key || record.worktree_key === "") {
     return true;
   }
 

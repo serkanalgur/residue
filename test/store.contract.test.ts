@@ -593,6 +593,100 @@ for (const impl of implementations) {
         expect(await store.get(inserted.id)).toBeNull();
       });
     });
+
+    describe("demoteWorktreeKey", () => {
+      it("sets worktree_key to NULL and record survives (never deletes)", async () => {
+        const wkKey = "wk-demote-test";
+        const inserted = await store.insert(
+          makeDraft({ worktree_key: wkKey, content: "Demotable record" }),
+        );
+
+        const scope = {
+          where: "scope = 'project' AND project_id = :pid",
+          params: { ":pid": "proj-test" } as Record<string, string | null>,
+        };
+
+        const countBefore = await store.count(scope);
+        expect(countBefore).toBe(1);
+
+        // Demote
+        const demoted = await store.demoteWorktreeKey("proj-test", wkKey);
+        expect(demoted).toBe(1);
+
+        // Record still exists
+        const fetched = await store.get(inserted.id);
+        expect(fetched).not.toBeNull();
+        expect(fetched!.id).toBe(inserted.id);
+        expect(fetched!.content).toBe("Demotable record");
+
+        // worktree_key is now NULL/empty
+        expect(fetched!.worktree_key === "" || fetched!.worktree_key === null).toBe(true);
+
+        // Count is still 1 — nothing was deleted
+        const countAfter = await store.count(scope);
+        expect(countAfter).toBe(1);
+      });
+
+      it("demoted record is visible to shareAcrossWorktrees scope", async () => {
+        const wkKey = "wk-shared";
+        const inserted = await store.insert(
+          makeDraft({ worktree_key: wkKey, content: "Shared record" }),
+        );
+
+        await store.demoteWorktreeKey("proj-test", wkKey);
+
+        // A shareAcrossWorktrees scope (project_id only, no worktree_key filter)
+        const sharedScope = {
+          where: "scope = 'project' AND project_id = :pid",
+          params: { ":pid": "proj-test" } as Record<string, string | null>,
+        };
+
+        const results = await store.scan({ scope: sharedScope, limit: 100 });
+        expect(results.length).toBe(1);
+        expect(results[0]!.id).toBe(inserted.id);
+      });
+
+      it("returns 0 when no records match", async () => {
+        const demoted = await store.demoteWorktreeKey("proj-test", "nonexistent-key");
+        expect(demoted).toBe(0);
+      });
+
+      it("does not affect other projects", async () => {
+        const wkKey = "wk-isolation";
+        await store.insert(
+          makeDraft({ worktree_key: wkKey, project_id: "proj-A", content: "Project A" }),
+        );
+        await store.insert(
+          makeDraft({ worktree_key: wkKey, project_id: "proj-B", content: "Project B" }),
+        );
+
+        // Demote only proj-A
+        const demoted = await store.demoteWorktreeKey("proj-A", wkKey);
+        expect(demoted).toBe(1);
+
+        // proj-B record is untouched
+        const bScope = {
+          where: "scope = 'project' AND project_id = :pid",
+          params: { ":pid": "proj-B" } as Record<string, string | null>,
+        };
+        const bRecords = await store.scan({ scope: bScope, limit: 100 });
+        expect(bRecords.length).toBe(1);
+        expect(bRecords[0]!.worktree_key).toBe(wkKey);
+      });
+
+      it("is idempotent — demoting twice returns 0 the second time", async () => {
+        const wkKey = "wk-idiom";
+        await store.insert(
+          makeDraft({ worktree_key: wkKey, content: "Idempotent record" }),
+        );
+
+        const first = await store.demoteWorktreeKey("proj-test", wkKey);
+        expect(first).toBe(1);
+
+        const second = await store.demoteWorktreeKey("proj-test", wkKey);
+        expect(second).toBe(0);
+      });
+    });
   });
 }
 

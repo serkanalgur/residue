@@ -100,9 +100,11 @@ function evictionScore(
  *
  * @param store - The memory store to apply retention to.
  * @param config - Retention configuration.
- * @param scope - Which scope to apply retention to.
+ * @param scope - Scope predicate to filter records for retention.
  * @param logger - Logger for diagnostics.
  * @param signal - Optional AbortSignal for cancellation.
+ * @param maxRecordsOverride - Optional override for the row cap (e.g., for global cap enforcement).
+ *   When provided, overrides `config.maxRecordsPerProject` for the cap enforcement phase.
  * @returns The number of records removed.
  */
 export async function runRetention(
@@ -111,6 +113,7 @@ export async function runRetention(
   scope: ScopePredicate,
   logger: Logger,
   signal?: AbortSignal,
+  maxRecordsOverride?: number,
 ): Promise<number> {
   if (!config.enabled) return 0;
 
@@ -130,7 +133,8 @@ export async function runRetention(
     signal?.throwIfAborted();
 
     // Phase 3: Enforce row cap by evicting least valuable records
-    const capRemoved = await enforceCap(store, config, scope, signal);
+    const effectiveMax = maxRecordsOverride ?? config.maxRecordsPerProject;
+    const capRemoved = await enforceCap(store, effectiveMax, config, scope, signal);
     totalRemoved += capRemoved;
 
     if (totalRemoved > 0) {
@@ -141,6 +145,53 @@ export async function runRetention(
       logger.debug("[retention] Cancelled by signal");
     } else {
       logger.error(`[retention] Failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return totalRemoved;
+}
+
+/**
+ * Enforce the global row cap on global-scope records.
+ *
+ * This is a separate entry point from `runRetention` because:
+ * 1. It operates on a DIFFERENT scope (global-only) than the project-scoped runRetention.
+ * 2. It only enforces the cap — no TTL or superseded phases (those are project-scoped).
+ * 3. The value ordering (superseded → TTL-expired → access-decay) is reused via `enforceCap`.
+ *
+ * @param store - The memory store.
+ * @param config - Retention configuration.
+ * @param globalScope - Scope predicate that selects global-scope records only.
+ * @param logger - Logger for diagnostics.
+ * @param signal - Optional AbortSignal for cancellation.
+ * @returns The number of records evicted.
+ */
+export async function runGlobalRetention(
+  store: MemoryStore,
+  config: RetentionConfig,
+  globalScope: ScopePredicate,
+  logger: Logger,
+  signal?: AbortSignal,
+): Promise<number> {
+  if (!config.enabled) return 0;
+  const maxGlobal = config.maxRecordsGlobal;
+  if (maxGlobal <= 0) return 0;
+
+  let totalRemoved = 0;
+
+  try {
+    // For global records, only enforce the cap (no TTL/superseded phases — those run per-project).
+    // The enforceCap function already uses evictionScore which handles value ordering.
+    totalRemoved = await enforceCap(store, maxGlobal, config, globalScope, signal);
+
+    if (totalRemoved > 0) {
+      logger.info(`[retention] Global cap: evicted ${totalRemoved} records (cap=${maxGlobal})`);
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      logger.debug("[retention] Global cap: cancelled by signal");
+    } else {
+      logger.error(`[retention] Global cap failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -245,14 +296,21 @@ async function removeExpired(
  * "Least valuable" is determined by the composite eviction score:
  * access count × confidence × recency. Superseded and TTL-expired records
  * have already been removed in earlier phases.
+ *
+ * @param store - The memory store.
+ * @param maxRecords - Maximum number of records to keep. 0 = unlimited.
+ * @param config - Retention configuration (for batchSize and TTL scoring).
+ * @param scope - Scope predicate to filter records.
+ * @param signal - Optional AbortSignal for cancellation.
+ * @returns Number of records removed.
  */
 async function enforceCap(
   store: MemoryStore,
+  maxRecords: number,
   config: RetentionConfig,
   scope: ScopePredicate,
   signal?: AbortSignal,
 ): Promise<number> {
-  const maxRecords = config.maxRecordsPerProject;
   if (maxRecords <= 0) return 0;
 
   const currentCount = await store.count(scope);

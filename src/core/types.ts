@@ -30,8 +30,8 @@ export interface MemoryRecord {
   readonly scope: Scope;
   /** Project ID this record belongs to (null for global scope). */
   readonly project_id: string | null;
-  /** Worktree key for isolation within a project. */
-  readonly worktree_key: string;
+  /** Worktree key for isolation within a project. null after demotion (widened scope). */
+  readonly worktree_key: string | null;
   /** Branch name, if applicable. */
   readonly branch_key: string | null;
   /** The content/text of the memory record. */

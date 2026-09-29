@@ -332,13 +332,25 @@ export class SqliteStore implements MemoryStore {
       }
     }
 
-    // Keep vector in sync: re-embed would require the embedder, so we just
-    // delete the stale vector if content changed. The next ingest cycle will re-embed.
-    if (this.activeVecTable && newContent !== existing.content) {
+    // Re-embed if content changed and embedder is available
+    if (this.activeVecTable && this.config.embedder && newContent !== existing.content) {
       try {
-        deleteVector(this.db, this.activeVecTable, id);
+        const newEmbedding = await this.config.embedder.embed(newContent);
+        if (newEmbedding) {
+          // Remove old vector, store new one
+          deleteVector(this.db, this.activeVecTable, id);
+          storeVector(this.db, this.activeVecTable, id, newEmbedding);
+        } else {
+          // Embedder returned null — remove stale vector
+          deleteVector(this.db, this.activeVecTable, id);
+        }
       } catch {
-        // Best effort
+        // Re-embedding failure is non-fatal — remove stale vector
+        try {
+          deleteVector(this.db, this.activeVecTable, id);
+        } catch {
+          // Best effort
+        }
       }
     }
 
@@ -516,6 +528,29 @@ export class SqliteStore implements MemoryStore {
       "UPDATE memory SET superseded_by = ? WHERE id = ?",
       [newId, oldId],
     );
+  }
+
+  /** @inheritdoc */
+  async demoteWorktreeKey(projectId: string, worktreeKey: string): Promise<number> {
+    if (this.config.readOnly) {
+      throw new Error("[residue] Store is in read-only mode");
+    }
+
+    // Count records that will be demoted
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM memory WHERE scope = 'project' AND project_id = ? AND worktree_key = ?`,
+    ).get(projectId, worktreeKey) as { cnt: number } | undefined;
+
+    const count = countRow?.cnt ?? 0;
+    if (count === 0) return 0;
+
+    // Set worktree_key to NULL — records become visible across all worktrees in the project
+    this.db.run(
+      `UPDATE memory SET worktree_key = NULL WHERE scope = 'project' AND project_id = ? AND worktree_key = ?`,
+      [projectId, worktreeKey],
+    );
+
+    return count;
   }
 
   /** @inheritdoc */
