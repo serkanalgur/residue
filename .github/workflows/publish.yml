@@ -5,8 +5,10 @@ on:
     tags:
       - 'v*'
 
+# id-token: write enables OIDC trusted publishing — the npm CLI authenticates
+# via GitHub's OIDC identity instead of a registry token secret.
 permissions:
-  id-token: write   # needed for npm provenance / trusted publishing
+  id-token: write
   contents: read
 
 jobs:
@@ -35,18 +37,24 @@ jobs:
       # The package ships raw .ts source via exports: { ".": "./src/index.ts" }.
       # This is intentional: OpenCode plugins run in a Bun/TypeScript-native
       # runtime that can consume .ts directly. No build step is needed.
+      - name: Set up Node.js for npm publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm v10.9+ is required for OIDC trusted publishing support.
+      - name: Upgrade npm to latest
+        run: npm install -g npm@latest
+
       - name: Set version from release tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "Setting version to: $VERSION"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Set up npm authentication
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+      # package.json already has publishConfig.access: "public".
+      # No --provenance flag needed — OIDC trusted publishing produces
+      # provenance automatically.
       - name: Publish package
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
