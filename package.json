@@ -1,9 +1,12 @@
 {
-  "name": "residue",
+  "name": "@serkanalgur/residue",
   "version": "0.1.0",
   "description": "Persistent, local-first project memory for OpenCode — extracts atomic 'decision + reason' facts from sessions and injects relevant notes via context hooks.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -27,6 +30,10 @@
     "type": "git",
     "url": "https://github.com/serkanalgur/residue.git"
   },
+  "bugs": {
+    "url": "https://github.com/serkanalgur/residue/issues"
+  },
+  "homepage": "https://github.com/serkanalgur/residue",
   "keywords": [
     "opencode",
     "plugin",

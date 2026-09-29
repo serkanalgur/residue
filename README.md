@@ -6,27 +6,29 @@ Residue extracts atomic "decision + reason" facts from coding sessions and injec
 
 ## Installation
 
-Add Residue as an OpenCode plugin in your `.opencode/config.json`:
-
-```json
-{
-  "plugin": {
-    "residue": {
-      "source": "npm:residue"
-    }
-  }
-}
+```bash
+npx opencode plugin add @serkanalgur/residue
 ```
 
-## How It Works
-
-1. **Ingestion**: Listens to session events (`session.text.delta` feeds a turn buffer; `session.idle` triggers extraction). An LLM call extracts durable facts from the conversation.
-
-2. **Storage**: Facts are stored in a local SQLite database with scope isolation (project + worktree). FTS5 enables full-text search; optional vector embeddings enable semantic search.
-
-3. **Injection**: A `context` hook runs before every model call, retrieves relevant memories via hybrid search (lexical + vector with Reciprocal Rank Fusion), and injects them as `<recalled_notes>` system parts.
-
 ## Configuration
+
+Add the plugin to your `opencode.jsonc`:
+
+```jsonc
+// opencode.jsonc
+{
+  "plugins": [
+    {
+      "package": "@serkanalgur/residue",
+      "options": {
+        "autoCapture": true,
+        "embedding": "auto",
+        "inject": { "enabled": true, "maxChars": 2400, "maxFacts": 6, "minScore": 0.34 }
+      }
+    }
+  ]
+}
+```
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -40,6 +42,14 @@ Add Residue as an OpenCode plugin in your `.opencode/config.json`:
 | `inject.minScore` | `0.34` | Minimum similarity score threshold |
 | `inject.shareAcrossWorktrees` | `true` | Share facts across worktrees of the same project |
 | `debug` | `false` | Enable debug logging |
+
+## How It Works
+
+1. **Ingestion**: Listens to session events (`session.text.delta` feeds a turn buffer; `session.idle` triggers extraction). An LLM call extracts durable facts from the conversation.
+
+2. **Storage**: Facts are stored in a local SQLite database with scope isolation (project + worktree). FTS5 enables full-text search; optional vector embeddings enable semantic search.
+
+3. **Injection**: A `context` hook runs before every model call, retrieves relevant memories via hybrid search (lexical + vector with Reciprocal Rank Fusion), and injects them as `<recalled_notes>` system parts.
 
 ## Tools
 
