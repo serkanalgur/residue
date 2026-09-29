@@ -67,6 +67,8 @@ export interface ResidueOptions {
   embedding: EmbeddingMode;
   /** Environment variable name for the embedding API key. */
   embeddingKeyEnv: string;
+  /** Timeout in milliseconds for each embedder probe during auto resolution. */
+  embeddingProbeTimeout: number;
   /** Context injection settings. */
   inject: InjectionConfig;
   /** Storage backend (only sqlite supported currently). */
@@ -84,6 +86,7 @@ export const DEFAULT_OPTIONS: ResidueOptions = {
   autoCapture: true,
   embedding: "auto",
   embeddingKeyEnv: "OPENAI_API_KEY",
+  embeddingProbeTimeout: 1500,
   inject: {
     enabled: true,
     maxChars: 2400,
@@ -178,6 +181,11 @@ export function resolveOptions(
   // embeddingKeyEnv
   if (typeof input["embeddingKeyEnv"] === "string" && input["embeddingKeyEnv"].length > 0) {
     result.embeddingKeyEnv = input["embeddingKeyEnv"] as string;
+  }
+
+  // embeddingProbeTimeout
+  if (typeof input["embeddingProbeTimeout"] === "number" && input["embeddingProbeTimeout"] > 0) {
+    result.embeddingProbeTimeout = Math.floor(input["embeddingProbeTimeout"]);
   }
 
   // inject (nested object)

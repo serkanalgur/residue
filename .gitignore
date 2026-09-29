@@ -5,3 +5,5 @@ dist/
 *.db-shm
 .DS_Store
 .opencode/
+REPORT.md
+RAPOR.md
