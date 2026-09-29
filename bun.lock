@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "residue",
+      "name": "@serkanalgur/residue",
       "devDependencies": {
         "@biomejs/biome": "^2.5.14",
         "@opencode/plugin": "2.0.19",

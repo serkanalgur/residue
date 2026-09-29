@@ -17,7 +17,7 @@ describe("Package metadata — scoped name", () => {
   });
 
   it("repository.url points at the GitHub repo", () => {
-    expect(pkg.repository.url).toBe("https://github.com/serkanalgur/residue.git");
+    expect(pkg.repository.url).toBe("git+https://github.com/serkanalgur/residue.git");
   });
 
   it("publishConfig.access is public", () => {
