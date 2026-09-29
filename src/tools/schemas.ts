@@ -18,23 +18,109 @@ export const STATUS_TOOL_SCHEMA = {
 } as const;
 
 /**
- * Schema for the `res_search` tool (future Faz 2+).
+ * Schema for the `res_search` tool.
  *
- * Excluded from Phase 1 but documented here for reference.
+ * Hybrid search across project memory — combines lexical (FTS5) and
+ * vector similarity via Reciprocal Rank Fusion.
  */
 export const SEARCH_TOOL_SCHEMA = {
   type: "object" as const,
   properties: {
     query: {
-      type: "string",
+      type: "string" as const,
       description: "Search query for memory records",
     },
+    scope: {
+      type: "string" as const,
+      enum: ["project", "global", "all"] as const,
+      description: "Scope filter: project-local, global, or both",
+      default: "all",
+    },
+    kind: {
+      type: "string" as const,
+      enum: ["fact", "decision", "pattern", "digest", "profile", "all"] as const,
+      description: "Memory kind filter",
+      default: "all",
+    },
     limit: {
-      type: "number",
-      description: "Maximum number of results to return",
+      type: "integer" as const,
+      description: "Maximum number of results (1–20)",
       default: 5,
+      minimum: 1,
+      maximum: 20,
+    },
+    sinceDays: {
+      type: "integer" as const,
+      description: "Only include records created within the last N days",
+      minimum: 1,
+      maximum: 3650,
+    },
+    minScore: {
+      type: "number" as const,
+      description: "Minimum similarity score threshold (0.0–1.0)",
+      default: 0.25,
+      minimum: 0,
+      maximum: 1,
     },
   },
   required: ["query"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * Schema for the `res_add` tool.
+ *
+ * Manually add a memory record. Provenance (source) is mandatory —
+ * every record must trace back to a session and message.
+ */
+export const ADD_TOOL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    content: {
+      type: "string" as const,
+      description: "Memory content text (minimum 8 characters)",
+      minLength: 8,
+    },
+    kind: {
+      type: "string" as const,
+      enum: ["fact", "decision", "pattern", "profile"] as const,
+      description: "Type of memory record",
+      default: "fact",
+    },
+    tags: {
+      type: "array" as const,
+      items: {
+        type: "string" as const,
+      },
+      description: "Optional tags for categorization (max 8)",
+      maxItems: 8,
+    },
+    scope: {
+      type: "string" as const,
+      enum: ["project", "global"] as const,
+      description: "Scope: project-local or global",
+      default: "project",
+    },
+    supersedes: {
+      type: "string" as const,
+      description: "ID of the record this one supersedes (optional)",
+    },
+    source: {
+      type: "object" as const,
+      description: "Provenance information (required)",
+      properties: {
+        path: {
+          type: "string" as const,
+          description: "File path of the source material",
+        },
+        line: {
+          type: "integer" as const,
+          description: "Line number in the source file",
+          minimum: 1,
+        },
+      },
+    },
+  },
+  required: ["content"],
   additionalProperties: false,
 } as const;

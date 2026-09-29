@@ -111,6 +111,7 @@ const KNOWN_KEYS = new Set([
   "autoCapture",
   "embedding",
   "embeddingKeyEnv",
+  "embeddingProbeTimeout",
   "inject",
   "store",
   "report",

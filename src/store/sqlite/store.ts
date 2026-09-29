@@ -76,10 +76,14 @@ function resolveScopeParams(scope: ScopePredicate): {
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i]!;
-    const val = scope.params[key];
-    // Use replaceAll to handle multiple occurrences of the same placeholder
+    const val = scope.params[key] as string | number;
+    // Count occurrences so we push one value per ? placeholder.
+    // replaceAll replaces ALL occurrences, so we need one bound value per occurrence.
+    const occurrences = where.split(key).length - 1;
+    for (let j = 0; j < occurrences; j++) {
+      values.push(val);
+    }
     where = where.replaceAll(key, "?");
-    values.push(val as string | number);
   }
 
   return { where, values };
