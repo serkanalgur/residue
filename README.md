@@ -1,5 +1,26 @@
 # Residue
 
+<div align="center">
+
+<img src="./assets/banner.svg" alt="Residue" width="100%" />
+
+[![npm version](https://img.shields.io/npm/v/@serkanalgur/residue?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@serkanalgur/residue)
+[![npm downloads](https://img.shields.io/npm/dw/@serkanalgur/residue?style=flat-square&color=22c55e)](https://www.npmjs.com/package/@serkanalgur/residue)
+[![stars](https://img.shields.io/github/stars/serkanalgur/residue?style=flat-square&color=f59e0b)](https://github.com/serkanalgur/residue/stargazers)
+[![license](https://img.shields.io/npm/l/@serkanalgur/residue?style=flat-square&color=8b5cf6)](https://github.com/serkanalgur/residue/blob/main/LICENSE)
+[![Socket Badge](https://badge.socket.dev/npm/package/@serkanalgur/residue/latest)](https://socket.dev/npm/package/@serkanalgur/residue/overview)
+[![opencode](https://img.shields.io/badge/OpenCode-V2-6366f1?style=flat-square)](https://opencode.ai)
+[![typescript](https://img.shields.io/badge/TypeScript-5.7%2B-3178c6?style=flat-square)](https://www.typescriptlang.org/)
+[![sponsor](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=flat-square&logo=github)](https://github.com/sponsors/serkanalgur)
+
+**Persistent, local-first project memory for OpenCode v2 — extracts decisions with their reasoning and recalls them on demand**
+
+[Installation](#installation) • [Configuration](#configuration) • [How It Works](#how-it-works) • [Tools](#tools) • [Privacy & Security](#privacy--security) • [Differences from opencode-mem](#differences-from-opencode-mem) • [Development](#development) • [License](#license)
+
+</div>
+
+---
+
 Persistent, local-first project memory for OpenCode V2.
 
 Residue extracts atomic "decision + reason" facts from coding sessions and injects relevant notes into future model calls via context hooks. All data lives on disk in SQLite — no cloud, no sync, no vendor lock-in.

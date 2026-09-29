@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <title>Residue — Persistent project memory for OpenCode v2</title>
+
+  <!-- Animation opt-out: SMIL is suppressed when the viewer asks for reduced motion. -->
+  <style>
+    @media (prefers-reduced-motion: reduce) {
+      .anim { display: none; }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f23;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a1a3e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d0d1a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a855f7;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="violetGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a855f7;stop-opacity:1" />
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+      <feMerge>
+        <feMergeNode in="coloredBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Reusable note fragment line -->
+    <rect id="noteLine" width="80" height="5" rx="2.5" />
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="400" fill="url(#bgGrad)" />
+
+  <!-- Grid pattern -->
+  <g opacity="0.05" stroke="#6366f1" stroke-width="1">
+    <line x1="0" y1="50" x2="1200" y2="50" />
+    <line x1="0" y1="100" x2="1200" y2="100" />
+    <line x1="0" y1="150" x2="1200" y2="150" />
+    <line x1="0" y1="200" x2="1200" y2="200" />
+    <line x1="0" y1="250" x2="1200" y2="250" />
+    <line x1="0" y1="300" x2="1200" y2="300" />
+    <line x1="0" y1="350" x2="1200" y2="350" />
+    <line x1="100" y1="0" x2="100" y2="400" />
+    <line x1="200" y1="0" x2="200" y2="400" />
+    <line x1="300" y1="0" x2="300" y2="400" />
+    <line x1="400" y1="0" x2="400" y2="400" />
+    <line x1="500" y1="0" x2="500" y2="400" />
+    <line x1="600" y1="0" x2="600" y2="400" />
+    <line x1="700" y1="0" x2="700" y2="400" />
+    <line x1="800" y1="0" x2="800" y2="400" />
+    <line x1="900" y1="0" x2="900" y2="400" />
+    <line x1="1000" y1="0" x2="1000" y2="400" />
+    <line x1="1100" y1="0" x2="1100" y2="400" />
+  </g>
+
+  <!-- LEFT: Scattered note fragments (12, unretrieved history) -->
+  <g opacity="0.55">
+    <use href="#noteLine" transform="translate(72,162) rotate(-5)" opacity="0.4" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(132,202) rotate(3)" opacity="0.3" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(92,242) rotate(-2)" opacity="0.35" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(162,182) rotate(6)" opacity="0.25" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(112,272) rotate(-4)" opacity="0.3" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(72,302) rotate(2)" opacity="0.35" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(172,252) rotate(-3)" opacity="0.25" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(132,312) rotate(5)" opacity="0.3" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(92,192) rotate(-1)" opacity="0.4" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(152,282) rotate(4)" opacity="0.2" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(52,222) rotate(-6)" opacity="0.25" fill="#4338ca" />
+    <use href="#noteLine" transform="translate(182,332) rotate(1)" opacity="0.3" fill="#4338ca" />
+  </g>
+
+  <!-- MIDDLE: Animated dashed connectors converging inward from scattered notes to query point -->
+  <g stroke="#8b5cf6" stroke-width="2" fill="none" opacity="0.8">
+    <path d="M 250 180 L 555 230" stroke-dasharray="5,5">
+      <animate class="anim" attributeName="stroke-dashoffset" from="0" to="10" dur="1.6s" repeatCount="indefinite" />
+    </path>
+    <path d="M 240 220 L 555 236" stroke-dasharray="5,5">
+      <animate class="anim" attributeName="stroke-dashoffset" from="0" to="10" dur="1.8s" repeatCount="indefinite" />
+    </path>
+    <path d="M 255 255 L 555 242" stroke-dasharray="5,5">
+      <animate class="anim" attributeName="stroke-dashoffset" from="0" to="10" dur="2.0s" repeatCount="indefinite" />
+    </path>
+    <path d="M 235 290 L 555 248" stroke-dasharray="5,5">
+      <animate class="anim" attributeName="stroke-dashoffset" from="0" to="10" dur="1.7s" repeatCount="indefinite" />
+    </path>
+    <path d="M 260 320 L 555 254" stroke-dasharray="5,5">
+      <animate class="anim" attributeName="stroke-dashoffset" from="0" to="10" dur="1.9s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <!-- Query core: soft-glow point that pulls fragments inward -->
+  <g filter="url(#softGlow)">
+    <circle cx="575" cy="248" r="22" fill="url(#accentGrad)" opacity="0.3">
+      <animate class="anim" attributeName="r" values="22;27;22" dur="2.8s" repeatCount="indefinite" />
+    </circle>
+    <text x="575" y="253" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" font-weight="700">query</text>
+  </g>
+
+  <!-- RIGHT: Compact, bright retrieved notes (4 stacked) -->
+  <g transform="translate(740,195)">
+    <rect x="-14" y="-16" width="368" height="120" rx="10" fill="#14142e" stroke="#a855f7" stroke-width="1" opacity="0.85" />
+    <g fill="#a855f7">
+      <use href="#noteLine" transform="translate(0,0) scale(1.2,1)" opacity="0.95" />
+      <use href="#noteLine" transform="translate(0,14) scale(0.9,1)" opacity="0.88" />
+      <use href="#noteLine" transform="translate(0,28) scale(1.05,1)" opacity="0.82" />
+      <use href="#noteLine" transform="translate(0,42) scale(0.75,1)" opacity="0.76" />
+    </g>
+    <text x="0" y="68" fill="#94a3b8" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" font-weight="500">hybrid retrieval · context hook</text>
+  </g>
+
+  <!-- Stats panel -->
+  <g transform="translate(740,340)">
+    <text x="0" y="0" fill="#818cf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="600">12 scattered</text>
+    <text x="140" y="0" fill="#a855f7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="600">→ 4 recalled</text>
+  </g>
+
+  <!-- Main title -->
+  <text x="600" y="80" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="48" font-weight="800" letter-spacing="-1">Residue</text>
+  <text x="600" y="115" text-anchor="middle" fill="#94a3b8" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="17" font-weight="400">Persistent project memory for OpenCode v2 — what was decided, and why, carried forward</text>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="380" width="1200" height="20" fill="#0f0f23" opacity="0.8" />
+  <text x="600" y="395" text-anchor="middle" fill="#818cf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="500">@serkanalgur/residue • MIT License</text>
+</svg>
