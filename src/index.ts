@@ -15,6 +15,9 @@ import { resolveScope } from "./scope.js";
 import { STATUS_TOOL_SCHEMA } from "./tools/schemas.js";
 import { buildStatusResponse } from "./tools/status.js";
 import { registerInjection, type InjectionCtx } from "./inject/index.js";
+import { registerIngestion, type IngestionCtx } from "./ingest/subscribe.js";
+import { createTurnBuffer, DEFAULT_BUFFER_CONFIG } from "./ingest/buffer.js";
+import { DEFAULT_INGEST_OPTIONS } from "./ingest/types.js";
 
 /** Plugin version — kept in sync with package.json. */
 const PLUGIN_VERSION = "0.1.0";
@@ -158,8 +161,28 @@ export default Plugin.define({
         log,
       );
 
+      // Register ingestion pipeline (session idle → extraction → store)
+      const turnBuffer = createTurnBuffer(DEFAULT_BUFFER_CONFIG);
+      const cleanupIngestion = registerIngestion(
+        ctx as unknown as IngestionCtx,
+        {
+          buffer: turnBuffer,
+          generateText: async (opts) => (ctx as any).generate.text(opts),
+          defaultModel: () => (ctx as any).model.default(),
+          store: { insert: async () => {} }, // Phase 2: will be the actual store
+          resolved: { ...scope, canonicalDir: scope.canonicalDir ?? dataDir },
+          sessionGet: async ({ sessionID }: { sessionID: string }) => {
+            const info = await (ctx as any).session.get({ sessionID });
+            return { projectID: info?.project?.id ?? scope.projectID };
+          },
+        },
+        DEFAULT_INGEST_OPTIONS,
+        log,
+      );
+
       // Cleanup function
       return () => {
+        cleanupIngestion();
         cleanupInjection();
         log.info("unloaded");
       };
