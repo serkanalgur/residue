@@ -32,6 +32,8 @@ export interface InjectionConfig {
   minScore: number;
   /** Whether to share facts across worktrees of the same project. */
   shareAcrossWorktrees: boolean;
+  /** Optional provider ID to scope the context hook to a specific provider. */
+  providerID?: string;
 }
 
 /**
@@ -206,6 +208,9 @@ export function resolveOptions(
     }
     if (typeof inj["shareAcrossWorktrees"] === "boolean") {
       injResult.shareAcrossWorktrees = inj["shareAcrossWorktrees"];
+    }
+    if (typeof inj["providerID"] === "string" && inj["providerID"].length > 0) {
+      injResult.providerID = inj["providerID"] as string;
     }
 
     result.inject = injResult;

@@ -13,7 +13,9 @@
     "lint": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@opencode/plugin": "^2.0.0"
+    "@opencode/plugin": "^2.0.0",
+    "@opencode/ai": "^2.0.0",
+    "@opencode/schema": "^2.0.0"
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.19",

@@ -14,6 +14,7 @@ import { resolveDataDir, NODE_ENV } from "./paths.js";
 import { resolveScope } from "./scope.js";
 import { STATUS_TOOL_SCHEMA } from "./tools/schemas.js";
 import { buildStatusResponse } from "./tools/status.js";
+import { registerInjection, type InjectionCtx } from "./inject/index.js";
 
 /** Plugin version — kept in sync with package.json. */
 const PLUGIN_VERSION = "0.1.0";
@@ -144,11 +145,29 @@ export default Plugin.define({
         `v${PLUGIN_VERSION} — store=sqlite driver=${driver} ` +
         `wal=${walEnabled} fts5=${fts5Available} embedder=pending degraded=true`,
       );
+
+      // Register context injection (if enabled)
+      const cleanupInjection = registerInjection(
+        ctx as unknown as InjectionCtx,
+        {
+          store: null as any, // Phase 2: will be the actual store
+          embedder: { embedder: null, degraded: true, reason: "pending" },
+          resolved: scope,
+        },
+        options,
+        log,
+      );
+
+      // Cleanup function
+      return () => {
+        cleanupInjection();
+        log.info("unloaded");
+      };
     } catch (err) {
       log.error(`Initialization failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Cleanup function
+    // Cleanup function (fallback if initialization failed)
     return () => {
       log.info("unloaded");
     };
