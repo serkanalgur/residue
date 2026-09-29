@@ -1,0 +1,41 @@
+{
+  "name": "residue",
+  "version": "0.1.0",
+  "description": "Persistent, local-first project memory for OpenCode — extracts atomic 'decision + reason' facts from sessions and injects relevant notes via context hooks.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.0.0"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.0.19",
+    "@types/node": "^22.0.0",
+    "bun-types": "^1.4.0",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/serkanalgur/residue.git"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "memory",
+    "project-memory",
+    "context-injection",
+    "local-first",
+    "sqlite",
+    "fts5"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
