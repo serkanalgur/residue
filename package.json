@@ -40,7 +40,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "biome check src/ test/"
+    "lint": "biome check src/ test/",
+    "bench:token-cost": "bun run bench/token-cost.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

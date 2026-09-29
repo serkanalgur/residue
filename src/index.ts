@@ -22,6 +22,8 @@ import { createStore } from "./store/factory.js";
 import { resolveEmbedder } from "./embed/registry.js";
 import { buildScopePredicate } from "./scope.js";
 import { runGlobalRetention } from "./retention.js";
+import { produceDigest, DEFAULT_DIGEST_CONFIG } from "./ingest/digest.js";
+import { createReporter } from "./report.js";
 
 /** Plugin version — kept in sync with package.json. */
 const PLUGIN_VERSION = "0.1.0";
@@ -147,8 +149,84 @@ export default Plugin.define({
         log,
       );
 
+      // --- Session Digest (B layer) ---
+      // Listen for `session.compacted` events and produce a single summary record.
+      // The compaction hook is NOT used for memory — it poisons the summary.
+      let disposed = false;
+      const digestAbort = new AbortController();
+      const digestSubscription = ctx.event.subscribe({ signal: digestAbort.signal });
+
+      // Run the digest subscription loop in the background
+      void (async () => {
+        try {
+          for await (const event of digestSubscription) {
+            if (event.type === "session.compaction.ended") {
+              const data = event.data as Record<string, unknown> | undefined;
+              const eventSessionID =
+                typeof data?.["sessionID"] === "string"
+                  ? (data["sessionID"] as string)
+                  : undefined;
+              const compactionSummary =
+                typeof data?.["text"] === "string"
+                  ? (data["text"] as string)
+                  : undefined;
+
+              if (!eventSessionID) continue;
+
+              // Schedule digest production on next tick — never block the event loop
+              setTimeout(() => {
+                void produceDigest(
+                  eventSessionID,
+                  {
+                    store,
+                    resolved: scope,
+                    generateText: (opts) => ctx.generate.text(opts),
+                    defaultModel: async () => {
+                      const result = await ctx.model.default();
+                      const data = result?.data;
+                      if (!data) {
+                        return { id: "unknown", providerID: "unknown" };
+                      }
+                      return { id: data.modelID ?? data.id, providerID: data.providerID };
+                    },
+                    embedder: resolvedEmbedder.embedder,
+                  },
+                  DEFAULT_DIGEST_CONFIG,
+                  compactionSummary,
+                  log,
+                ).catch((err) => {
+                  log.debug(
+                    `[residue] digest handler error (suppressed): ${
+                      err instanceof Error ? err.message : String(err)
+                    }`,
+                  );
+                });
+              }, 0);
+            }
+          }
+        } catch (err) {
+          // Subscription loop error (e.g., AbortError from cleanup)
+          if (!disposed) {
+            log.debug(
+              `[residue] digest subscription error (suppressed): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
+        }
+      })();
+
+      // --- Reporting Stripe ---
+      // When enabled, creates a reporter that emits synthetic messages via
+      // ctx.session.synthetic(). When disabled, returns null — genuinely absent.
+      const reporter = createReporter(options.report, "current", {
+        session: { synthetic: (input) => ctx.session.synthetic(input as never) },
+      }, log);
+
       // Cleanup function
       return () => {
+        disposed = true;
+        digestAbort.abort();
         cleanupWorktree();
         cleanupIngestion();
         cleanupInjection();

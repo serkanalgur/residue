@@ -4,7 +4,7 @@
  * Covers:
  * - Global cap eviction to exact limit
  * - Project-scoped records are UNTOUCHED by global-cap eviction
- * - maxRecordsGlobal: 0 means "no global records"
+ * - maxRecordsGlobal: 0 means "no cap enforced" (unlimited)
  * - Idempotency (second run changes nothing)
  * - Eviction ordering (least valuable first)
  *
@@ -198,8 +198,8 @@ for (const impl of implementations) {
       });
     });
 
-    describe("maxRecordsGlobal: 0", () => {
-      it("0 means no global records — deletes all on next run", async () => {
+    describe("maxRecordsGlobal: 0 means unlimited (no cap enforced)", () => {
+      it("retention with cap=0 removes nothing and leaves record count unchanged", async () => {
         for (let i = 0; i < 5; i++) {
           await store.insert(makeDraft({ content: `Global ${i}` }));
         }
@@ -207,17 +207,36 @@ for (const impl of implementations) {
         const config = defaultConfig({ maxRecordsGlobal: 0 });
         const removed = await runGlobalRetention(store, config, globalScope(), log);
 
-        // maxRecordsGlobal: 0 should result in 0 global records
-        // But runGlobalRetention returns 0 when maxGlobal <= 0 (early return)
-        // The actual enforcement: enforceCap returns 0 when maxRecords <= 0
-        // This means maxGlobal: 0 = "unlimited" in the current implementation
-        // The spec says it should mean "no global records"
+        // 0 means "no cap" — nothing should be removed
+        expect(removed).toBe(0);
 
-        // Let's check the actual behavior
         const count = await store.count(globalScope());
-        // If the implementation treats 0 as "no cap", count stays at 5
-        // If it treats 0 as "no records allowed", count goes to 0
-        expect(typeof count).toBe("number");
+        expect(count).toBe(5);
+      });
+
+      it("project-scoped maxRecordsPerProject=0 also means unlimited", async () => {
+        for (let i = 0; i < 5; i++) {
+          await store.insert(makeDraft({
+            scope: "project",
+            project_id: "proj-zero-test",
+            worktree_key: "wk-zero-test",
+            content: `Project ${i}`,
+            created_at: Date.now() + i,
+          }));
+        }
+
+        const projectScopeZero: ScopePredicate = {
+          where: "scope = 'project' AND project_id = :pid",
+          params: { ":pid": "proj-zero-test" },
+        };
+
+        const config = defaultConfig({ maxRecordsPerProject: 0 });
+        const removed = await runRetention(store, config, projectScopeZero, log);
+
+        // 0 means "no cap" — cap enforcement phase removes nothing
+        // (TTL/superseded phases may still run but won't affect fresh records)
+        const count = await store.count(projectScopeZero);
+        expect(count).toBe(5);
       });
     });
 

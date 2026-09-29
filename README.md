@@ -62,7 +62,12 @@ Add the plugin to your `opencode.jsonc`:
 | `inject.maxFacts` | `6` | Maximum facts to inject |
 | `inject.minScore` | `0.34` | Minimum similarity score threshold |
 | `inject.shareAcrossWorktrees` | `true` | Share facts across worktrees of the same project |
+| `retention.enabled` | `true` | Enable automatic retention runs (TTL expiry, row cap enforcement) |
+| `retention.maxRecordsPerProject` | `2000` | Max records per project. `0` = unlimited (no cap) |
+| `retention.maxRecordsGlobal` | `5000` | Max records globally. `0` = unlimited (no cap) |
 | `debug` | `false` | Enable debug logging |
+
+> **Retention note**: Setting `maxRecordsPerProject` or `maxRecordsGlobal` to `0` disables that cap entirely (unlimited records). It does **not** mean "store zero records." If you want to prevent record capture, set `autoCapture: false` instead.
 
 ## How It Works
 

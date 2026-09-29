@@ -80,9 +80,26 @@ export interface RetentionConfig {
   readonly enabled: boolean;
   /** Per-kind TTL in days. Set any value to 0 to disable TTL for that kind. */
   readonly ttl: RetentionTTL;
-  /** Hard maximum records per project. 0 = unlimited. Default: 2000. */
+  /**
+   * Hard maximum records per project.
+   *
+   * **`0` means "no cap enforced" (unlimited records), NOT "store zero records".**
+   * This is the conventional reading: a value of 0 disables the per-project row
+   * cap entirely, allowing unlimited growth within a project. If you want to
+   * prevent any records from being stored, use `autoCapture: false` instead.
+   * Default: 2000.
+   */
   readonly maxRecordsPerProject: number;
-  /** Hard maximum records globally. 0 = unlimited. Default: 5000. */
+  /**
+   * Hard maximum records globally (across all projects and worktrees).
+   *
+   * **`0` means "no cap enforced" (unlimited records), NOT "store zero records".**
+   * This is the conventional reading: a value of 0 disables the global row
+   * cap entirely, allowing unlimited growth across all projects. If you want
+   * to prevent any global records from being stored, use `autoCapture: false`
+   * instead.
+   * Default: 5000.
+   */
   readonly maxRecordsGlobal: number;
   /** Maximum records examined per retention run (bounded work). Default: 500. */
   readonly batchSize: number;
