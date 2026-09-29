@@ -8,6 +8,7 @@
  */
 
 import { Plugin } from "@opencode/plugin";
+import pkg from "../package.json" with { type: "json" };
 import { resolveOptions } from "./config.js";
 import { createLogger } from "./log.js";
 import { resolveDataDir, NODE_ENV } from "./paths.js";
@@ -25,8 +26,8 @@ import { runGlobalRetention } from "./retention.js";
 import { produceDigest, DEFAULT_DIGEST_CONFIG } from "./ingest/digest.js";
 import { createReporter } from "./report.js";
 
-/** Plugin version — kept in sync with package.json. */
-const PLUGIN_VERSION = "0.1.0";
+/** Plugin version — sourced from package.json to prevent drift. */
+const PLUGIN_VERSION = pkg.version;
 
 export default Plugin.define({
   id: "residue",
@@ -150,7 +151,7 @@ export default Plugin.define({
       );
 
       // --- Session Digest (B layer) ---
-      // Listen for `session.compacted` events and produce a single summary record.
+      // Listen for `session.compaction.ended` events and produce a single summary record.
       // The compaction hook is NOT used for memory — it poisons the summary.
       let disposed = false;
       const digestAbort = new AbortController();

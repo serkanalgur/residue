@@ -109,6 +109,30 @@ describe("Package metadata — exports map", () => {
   });
 });
 
+describe("Package metadata — version consistency", () => {
+  it("package.json version is a valid semver string", () => {
+    const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;
+    expect(pkg.version).toMatch(SEMVER_RE);
+  });
+
+  it("source files do not contain hardcoded version strings", async () => {
+    const indexSrc = await readFile("src/index.ts", "utf-8");
+    const registerSrc = await readFile("src/tools/register.ts", "utf-8");
+    // The only version string should come from package.json import, not a literal.
+    // Pattern: a quoted semver that is NOT inside an import statement.
+    const HARDCODED_RE = /(?<!import\s.*from\s.*)"[0-9]+\.[0-9]+\.[0-9]+"/g;
+    expect(indexSrc).not.toMatch(HARDCODED_RE);
+    expect(registerSrc).not.toMatch(HARDCODED_RE);
+  });
+
+  it("both source files import version from package.json", async () => {
+    const indexSrc = await readFile("src/index.ts", "utf-8");
+    const registerSrc = await readFile("src/tools/register.ts", "utf-8");
+    expect(indexSrc).toContain('from "../package.json"');
+    expect(registerSrc).toContain('from "../../package.json"');
+  });
+});
+
 describe("Package metadata — changelog", () => {
   it("files includes CHANGELOG.md", () => {
     expect(pkg.files).toContain("CHANGELOG.md");

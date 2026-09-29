@@ -11,6 +11,7 @@ import type { MemoryStore, Embedder, ScopePredicate } from "../core/ports.js";
 import type { ResolvedScope } from "../core/ports.js";
 import type { ResidueOptions } from "../config.js";
 import type { Logger } from "../log.js";
+import pkg from "../../package.json" with { type: "json" };
 import { buildScopePredicate } from "../scope.js";
 import { STATUS_TOOL_SCHEMA, SEARCH_TOOL_SCHEMA, ADD_TOOL_SCHEMA, FORGET_TOOL_SCHEMA, PROFILE_TOOL_SCHEMA } from "./schemas.js";
 import { buildStatusResponse } from "./status.js";
@@ -89,7 +90,7 @@ export async function registerTools(
   options: ResidueOptions,
   logger: Logger,
 ): Promise<void> {
-  const pluginVersion = "0.1.0";
+  const pluginVersion = pkg.version;
 
   await ctx.tool.transform((editor) => {
     // Set up the "res" namespace
