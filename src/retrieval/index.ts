@@ -10,7 +10,7 @@
 export { buildQuery, validateScopeBind } from "./query.js";
 export type { QueryFilters, BuiltQuery } from "./query.js";
 
-export { hybridSearch, rrfMerge } from "./search.js";
+export { hybridSearch, rrfMerge, normalizeRrfScores } from "./search.js";
 export type { SearchOptions, SearchParams, HybridResult } from "./search.js";
 
 export { select } from "./select.js";

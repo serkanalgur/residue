@@ -20,6 +20,13 @@
  * preferred over raw-score blending because cosine similarity and FTS5 BM25
  * live on incompatible scales — RRF only cares about rank order.
  *
+ * ## Score scale
+ *
+ * Raw RRF scores are rank-derived and bounded by `2/(k+1) ≈ 0.033`. They are
+ * therefore rescaled by `normalizeRrfScores` against that fixed structural
+ * bound before `minScore` is applied, so the configured threshold is
+ * meaningful instead of discarding every hit.
+ *
  * @module retrieval/search
  */
 
@@ -133,8 +140,12 @@ export async function hybridSearch(
 
   [lexicalHits, vectorHits] = await Promise.all([lexicalPromise, vectorPromise]);
 
-  // --- Merge with RRF ---
-  const merged = rrfMerge(lexicalHits, vectorHits, RRF_K);
+  // --- Merge with RRF, then rescale ---
+  // Raw RRF scores are rank-derived and bounded by 2/(k+1) ≈ 0.033 at k=60,
+  // so they cannot be compared against a 0–1 `minScore` directly. They are
+  // rescaled against that fixed structural bound (1.0 = ranked first in BOTH
+  // channels) before the threshold is applied. See normalizeRrfScores.
+  const merged = normalizeRrfScores(rrfMerge(lexicalHits, vectorHits, RRF_K));
 
   // --- Filter by minScore ---
   const filtered = merged.filter((h) => h.score >= options.minScore);
@@ -161,6 +172,71 @@ export async function hybridSearch(
     mode,
     degraded: vectorDegraded,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Score normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Rescale RRF scores to a relative 0–1 scale.
+ *
+ * ## Why this is necessary
+ *
+ * RRF produces **rank-derived** scores, not similarity scores. The maximum
+ * possible value is `2 / (k + 1)` — with the standard `k = 60` that is
+ * `0.0328`, and a single-channel hit tops out at `0.0164`. Comparing those
+ * against a 0–1 `minScore` threshold is a unit mismatch: with the default
+ * `minScore` of `0.34`, **every** hit is discarded and injection silently
+ * returns nothing. No corpus or query can produce a high enough score,
+ * because the bound is structural.
+ *
+ * ## The fix
+ *
+ * Rescale against the **fixed structural bound** `2 / (k + 1)` — the score a
+ * record would earn by ranking first in *both* channels — rather than against
+ * the best hit in the result set.
+ *
+ * A fixed divisor matters. Dividing by the observed maximum would make the
+ * top hit `1.0` for any result set, including a set where every hit is a poor
+ * match, which silently reduces `minScore` to a no-op. Against the structural
+ * bound the scale is stable and independent of the result set, so the one
+ * signal RRF genuinely carries — **channel agreement** — survives:
+ *
+ * | Hit                                   | Normalized |
+ * | ------------------------------------- | ---------- |
+ * | rank 0 in both channels (best case)  | `1.000`    |
+ * | rank 0 in one channel                 | `0.500`    |
+ * | rank 17 in one channel (worst case)   | `0.391`    |
+ *
+ * ## What this cannot do
+ *
+ * RRF is rank-based, so it carries **no absolute relevance information**: a
+ * rank-0 hit scores identically whether it is an excellent or a poor match.
+ * No rescaling of the output can recover a semantic similarity floor. After
+ * this fix `minScore` is a channel-agreement / rank-quality gate, not a
+ * relevance floor — the documented "similarity score" framing in the README
+ * is not accurate for fused results. Producing a true relevance floor would
+ * require scoring on similarity rather than rank, which is a larger change.
+ *
+ * This transform is **monotonic**, so ranking and tie order are unchanged —
+ * it affects only the threshold comparison.
+ *
+ * @param hits - Merged RRF hits, sorted by score descending.
+ * @param k - The RRF constant used for merging (default `RRF_K`).
+ * @returns Hits with scores rescaled to 0–1 against the structural bound.
+ */
+export function normalizeRrfScores(
+  hits: readonly SearchHit[],
+  k: number = RRF_K,
+): SearchHit[] {
+  if (hits.length === 0) return [];
+
+  // Structural maximum: a record ranked first in both channels.
+  const bound = 2 / (k + 1);
+  if (!(bound > 0)) return [...hits];
+
+  return hits.map((h) => ({ ...h, score: h.score / bound }));
 }
 
 // ---------------------------------------------------------------------------

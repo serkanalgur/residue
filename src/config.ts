@@ -124,6 +124,13 @@ export type DataDirMode = "xdg" | "project";
 export interface ResidueOptions {
   /** Automatically capture facts from conversations. */
   autoCapture: boolean;
+  /**
+   * Capture USER prompts (not just assistant text) for memory extraction.
+   *
+   * Off by default: prompt capture is a broader change than assistant-text
+   * extraction and carries its own privacy surface, so it is opt-in.
+   */
+  capturePrompts: boolean;
   /** Embedding strategy. */
   embedding: EmbeddingMode;
   /** Environment variable name for the embedding API key. */
@@ -147,6 +154,7 @@ export interface ResidueOptions {
 /** Default plugin options. */
 export const DEFAULT_OPTIONS: ResidueOptions = {
   autoCapture: true,
+  capturePrompts: false,
   embedding: "auto",
   embeddingKeyEnv: "OPENAI_API_KEY",
   embeddingProbeTimeout: 1500,
@@ -185,6 +193,7 @@ export const DEFAULT_OPTIONS: ResidueOptions = {
  */
 const KNOWN_KEYS = new Set([
   "autoCapture",
+  "capturePrompts",
   "embedding",
   "embeddingKeyEnv",
   "embeddingProbeTimeout",

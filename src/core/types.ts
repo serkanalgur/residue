@@ -98,6 +98,13 @@ export interface MemoryDraft {
   readonly tags: readonly string[];
   /** Override creation timestamp (epoch ms). If omitted, Date.now() is used. */
   readonly created_at?: number;
+  /**
+   * Text of an earlier record this draft supersedes.
+   *
+   * Resolved to a concrete record ID and applied via `store.supersede()`
+   * at insert time. Absent when the model reports no contradiction.
+   */
+  readonly contradicts?: string;
 }
 
 /** Payload injected into the context hook for the model call. */

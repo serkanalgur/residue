@@ -13,6 +13,13 @@ export type { TurnBuffer, TurnBufferConfig } from "./buffer.js";
 
 export { extractMemories, redactSensitiveContent } from "./extractor.js";
 
+export {
+  createPromptBuffer,
+  isTrivialPrompt,
+  DEFAULT_PROMPT_BUFFER_CONFIG,
+} from "./prompt-buffer.js";
+export type { PromptBuffer, PromptBufferConfig } from "./prompt-buffer.js";
+
 export { registerIngestion } from "./subscribe.js";
 export type { IngestionCtx, SubscribeDeps } from "./subscribe.js";
 

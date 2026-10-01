@@ -18,6 +18,7 @@ import { registerInjection } from "./inject/index.js";
 import { registerIngestion } from "./ingest/subscribe.js";
 import { registerWorktreeSync } from "./worktree.js";
 import { createTurnBuffer, DEFAULT_BUFFER_CONFIG } from "./ingest/buffer.js";
+import { createPromptBuffer, DEFAULT_PROMPT_BUFFER_CONFIG } from "./ingest/prompt-buffer.js";
 import { DEFAULT_INGEST_OPTIONS } from "./ingest/types.js";
 import { createStore } from "./store/factory.js";
 import { resolveEmbedder } from "./embed/registry.js";
@@ -126,10 +127,14 @@ export default Plugin.define({
 
       // Register ingestion pipeline (session idle → extraction → store)
       const turnBuffer = createTurnBuffer(DEFAULT_BUFFER_CONFIG);
+      // User-prompt capture (opt-in via capturePrompts). Listens on
+      // session.inbox.enqueued — assistant-text deltas never carry prompts.
+      const promptBuffer = createPromptBuffer(DEFAULT_PROMPT_BUFFER_CONFIG);
       const cleanupIngestion = registerIngestion(
         ctx,
         {
           buffer: turnBuffer,
+          promptBuffer,
           generateText: (opts) => ctx.generate.text(opts),
           defaultModel: async () => {
             const result = await ctx.model.default();
@@ -146,7 +151,7 @@ export default Plugin.define({
             return { projectID: info?.projectID ?? scope.projectID };
           },
         },
-        DEFAULT_INGEST_OPTIONS,
+        { ...DEFAULT_INGEST_OPTIONS, capturePrompts: options.capturePrompts },
         log,
       );
 

@@ -71,6 +71,71 @@ describe("Package metadata — files allowlist", () => {
   });
 });
 
+describe("Package metadata — main entry", () => {
+  it("main points at a file that actually exists", async () => {
+    // Regression: `main` was "index.js", which does not exist. Tools that
+    // resolve only `main` (ignoring the `exports` map) therefore failed to
+    // load the plugin — opencode silently skipped it with no error, which is
+    // why the plugin could not be used as a path plugin without a wrapper.
+    const mainPath = new URL(`../${pkg.main}`, import.meta.url);
+    await expect(readFile(mainPath, "utf8")).resolves.toBeDefined();
+  });
+
+  it("main and exports['.'] agree on the entry point", () => {
+    const normalize = (p: string) => p.replace(/^\.\//, "");
+    expect(normalize(pkg.main)).toBe(normalize(pkg.exports["."] as string));
+  });
+});
+
+describe("Package metadata — entrypoint coverage", () => {
+  /**
+   * npm `files` semantics: an entry is published if it exactly matches an
+   * allowlist entry, or if it sits inside an allowlisted directory prefix
+   * (e.g. "src/" covers "src/index.ts"). package.json is always published
+   * regardless.
+   */
+  function coveredByFiles(relativePath: string): boolean {
+    const p = relativePath.replace(/^\.\//, "");
+    if (p === "package.json") return true;
+    return pkg.files.some((entry) => {
+      if (entry === p) return true;
+      if (entry.endsWith("/")) return p.startsWith(entry);
+      // An allowlisted file cannot implicitly cover a different path.
+      return false;
+    });
+  }
+
+  it("every entrypoint is covered by the files allowlist", () => {
+    // The opencode path-plugin loader resolves a local directory to
+    // `<dir>/index.*` and NEVER reads package.json `main`. So `index.ts` is a
+    // genuine runtime entrypoint and must be published, otherwise a local/dev
+    // install works while the published package silently fails to load.
+    const PATH_PLUGIN_ENTRY = "index.ts";
+
+    const entrypoints = [
+      { name: "main", target: pkg.main },
+      { name: 'exports["."]', target: pkg.exports["."] as string },
+      { name: 'exports["./package.json"]', target: pkg.exports["./package.json"] as string },
+      { name: "opencode path-plugin entry", target: PATH_PLUGIN_ENTRY },
+    ];
+
+    for (const { name, target } of entrypoints) {
+      expect(
+        coveredByFiles(target),
+        `Entrypoint ${name} -> "${target}" is NOT covered by the files allowlist, ` +
+          `so it would be missing from the published package`,
+      ).toBe(true);
+    }
+  });
+
+  it("the path-plugin entrypoint exists on disk", async () => {
+    // Guards the allowlist entry against pointing at a file that isn't there.
+    await expect(
+      readFile(new URL("../index.ts", import.meta.url), "utf8"),
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("Package metadata — exports map", () => {
   it('exports["."] points at ./src/index.ts', () => {
     expect(pkg.exports["."]).toBe("./src/index.ts");

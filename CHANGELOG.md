@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-01
+
+Context injection was silently broken: under default configuration the plugin retrieved nothing and injected no memories. Three independent defects stacked, any one of which was sufficient. All are fixed and covered by regression tests.
+
+### Fixed
+
+- **FTS5 queries no longer require every term (`buildFtsQueries`)** — query terms were joined with `AND`, so a natural-language prompt such as "What is the zorblax deployment pipeline canary cap?" became `"what" AND "is" AND "the" AND …` and matched nothing; the stopwords alone made it unsatisfiable. The builder now returns candidates most-precise-first — every term `AND`-joined with no stopword stripping, then a stopword-stripped `OR` fallback used only when the precise form returns no rows. `search()` stops at the first candidate that matches. This keeps identifier queries exact (searching `worker-A` still returns only `worker-A-*`) while natural-language prompts now retrieve.
+- **FTS5 bm25 scores are remapped onto a usable 0–1 range (`ftsRanksToScores`)** — `1 / (1 + abs(rank))` assumed bm25 magnitudes of order 1, but FTS5 returns ~1e-6, so every hit scored ~0.9999 and the score could not distinguish a strong match from a weak one. Scores are now normalized against the best (most negative) rank in the result set, making the top hit exactly `1.0` independent of corpus size.
+- **RRF scores are normalized before `minScore` is applied (`normalizeRrfScores`)** — raw RRF scores are rank-derived and bounded by `2/(k+1)` ≈ 0.033 at `k = 60`, but `inject.minScore` is a 0–1 threshold (default `0.34`). The default therefore discarded **every** hit. Scores are now rescaled against that fixed structural bound, so a hit ranked first in both channels scores `1.0` and one found by a single channel scores `0.5`. Ranking is unchanged — the transform is monotonic.
+- **`contradicts` is now honoured** — the extraction prompt asks the model which earlier fact a new memory supersedes, and the `superseded_by` column plus the retention engine's superseded-first eviction were fully built, but the field was parsed and then discarded. Contradiction references are now resolved to a record (before the new record is inserted, so a self-match cannot occur) and applied via `store.supersede()`.
+- **`package.json` `main` points at a real file** — it referenced `index.js`, which does not exist. `main` now agrees with `exports["."]` and resolves to `src/index.ts`.
+
+### Added
+
+- **Root `index.ts` path-plugin entrypoint** — opencode resolves a local directory plugin to `<dir>/index.*` and never reads `package.json` `main`, so residue could not be loaded as a path plugin without a wrapper. The new root entry re-exports `src/index.ts` and is covered by the `files` allowlist so it is present in the published tarball. A `.ts` entry is supported; a JS entry is not required.
+- **`capturePrompts` option (default `false`)** — opt-in capture of user prompts in addition to assistant text, sourced from `session.inbox.enqueued` (`item.type === "user"`). Off by default because it widens what the plugin persists.
+- **Regression coverage** — `test/fts-query.test.ts`, `test/rrf-minscore.test.ts`, `test/contradicts.test.ts`, `test/prompt-capture.test.ts`, and entrypoint-allowlist assertions in `test/package-meta.test.ts`.
+
+### Known limitations
+
+- `inject.minScore` is a channel-agreement gate, not a relevance floor. RRF is rank-based and carries no absolute relevance information, so a hit ranked first scores identically whether it is an excellent or a poor match. The default of `0.34` admits everything the retriever returns.
+- Memory extraction is driven by `session.idle`, which does not fire in non-interactive `opencode run` sessions. `session.execution.succeeded` is the reliable end-of-turn signal.
+- FTS score magnitudes vary with corpus size, so ranking degrades on very small stores; the vector channel carries more signal once embeddings are available.
+
 ## [0.2.0] - 2026-09-29
 
 ### Added

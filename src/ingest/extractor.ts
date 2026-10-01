@@ -53,6 +53,9 @@ const MAX_TAGS = 8;
 /** Maximum confidence value. */
 const MAX_CONFIDENCE = 1.0;
 
+/** Maximum length of the `contradicts` reference text. */
+const MAX_CONTRADICTS_LENGTH = 300;
+
 /** Patterns that indicate sensitive file content to redact. */
 const SENSITIVE_FILE_PATTERNS: readonly RegExp[] = [
   /\.env\b/i,
@@ -166,6 +169,9 @@ export async function extractMemories(
         embedding: null, // Embedding is computed at insert time
         source,
         tags: raw.tags.slice(0, MAX_TAGS),
+        ...(typeof raw.contradicts === "string" && raw.contradicts.trim().length > 0
+          ? { contradicts: raw.contradicts.trim().slice(0, MAX_CONTRADICTS_LENGTH) }
+          : {}),
       };
 
       drafts.push(draft);

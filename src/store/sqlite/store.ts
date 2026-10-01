@@ -213,14 +213,12 @@ export class SqliteStore implements MemoryStore {
 
     // FTS5 search
     if (this.fts5Available && query.trim()) {
-      try {
-        const ftsQuery = buildFtsQuery(query);
-        const resolved = resolveScopeParams(scope);
+      const resolved = resolveScopeParams(scope);
 
-        // Append FTS query and limit as additional ? placeholders.
-        // IMPORTANT: FTS MATCH ? must be the FIRST ? in the SQL, so the
-        // FTS query value must come first in the params array.
-        const sql = `SELECT m.id, m.text, m.kind, m.tags, m.scope, m.project_id,
+      // Append FTS query and limit as additional ? placeholders.
+      // IMPORTANT: FTS MATCH ? must be the FIRST ? in the SQL, so the
+      // FTS query value must come first in the params array.
+      const sql = `SELECT m.id, m.text, m.kind, m.tags, m.scope, m.project_id,
                 m.worktree_key, m.branch_key, m.source, m.confidence,
                 m.created_at, m.last_access, m.access_count, m.superseded_by,
                 rank
@@ -231,21 +229,35 @@ export class SqliteStore implements MemoryStore {
          ORDER BY rank
          LIMIT ?`;
 
-        const params: (string | number)[] = [ftsQuery, ...resolved.values, limit * 2];
-        const ftsResults = this.db.prepare(sql).all(...params) as Array<MemoryRow & { rank: number }>;
+      // Try candidates most-precise-first and stop at the first that returns
+      // rows, so an exact/identifier query is never broadened needlessly.
+      for (const ftsQuery of buildFtsQueries(query)) {
+        try {
+          const params: (string | number)[] = [ftsQuery, ...resolved.values, limit * 2];
+          const ftsResults = this.db.prepare(sql).all(...params) as Array<
+            MemoryRow & { rank: number }
+          >;
 
-        for (const row of ftsResults) {
-          if (seenIds.has(row.id)) continue;
-          seenIds.add(row.id);
-          this.touchRecord(row.id);
-          hits.push({
-            record: rowToRecord(row),
-            score: ftsRankToScore(row.rank),
-            ftsMatch: true,
-          });
+          // Remap bm25 onto a usable 0-1 scale relative to this result set,
+          // so strong and weak matches are actually distinguishable.
+          const ftsScores = ftsRanksToScores(ftsResults.map((r) => r.rank));
+
+          for (const [i, row] of ftsResults.entries()) {
+            if (seenIds.has(row.id)) continue;
+            seenIds.add(row.id);
+            this.touchRecord(row.id);
+            hits.push({
+              record: rowToRecord(row),
+              score: ftsScores[i] ?? 0,
+              ftsMatch: true,
+            });
+          }
+
+          if (ftsResults.length > 0) break;
+        } catch {
+          // FTS query failure on this candidate — try the next one, and if all
+          // fail, continue without FTS results.
         }
-      } catch {
-        // FTS query failure — continue without FTS results
       }
     }
 
@@ -783,34 +795,120 @@ function rowToRecord(row: MemoryRow): MemoryRecord {
 }
 
 /**
- * Convert FTS5 rank to a 0–1 similarity score.
+ * Remap raw FTS5 bm25 `rank` values onto a usable 0–1 scale.
  *
- * FTS5 rank is negative (closer to 0 = better match).
- * We normalize: score = 1 / (1 + abs(rank)).
+ * ## Why the old formula failed
  *
- * @param rank - FTS5 rank value.
- * @returns Score in [0, 1].
+ * `1 / (1 + abs(rank))` assumed bm25 magnitudes of order 1. In practice
+ * FTS5 returns values around `1e-6`, so **every** hit scored ~0.9999 and the
+ * score carried no information — a strong match and a weak one were
+ * indistinguishable, and downstream `score DESC` sorting became arbitrary.
+ *
+ * bm25 is negative, more-negative means better, and its absolute magnitude
+ * depends on corpus size and query length, so no fixed constant can map it to
+ * a comparable scale. The only stable reference point is the best rank *in the
+ * current result set*.
+ *
+ * ## The remap
+ *
+ * Dividing by the best (most negative) rank makes the top hit exactly `1.0`
+ * and spreads the remainder proportionally — independent of corpus size and
+ * bm25's absolute scale. This is the same relative-normalization approach used
+ * for RRF scores in `src/retrieval/search.ts`.
+ *
+ * Monotonic, so it never reorders results; it only makes the magnitudes
+ * meaningful.
+ *
+ * @param ranks - Raw bm25 ranks from one FTS5 query, any order.
+ * @returns Scores in [0, 1] aligned index-wise with `ranks`; best hit = 1.0.
  */
-function ftsRankToScore(rank: number): number {
-  return 1 / (1 + Math.abs(rank));
+function ftsRanksToScores(ranks: readonly number[]): number[] {
+  if (ranks.length === 0) return [];
+
+  // Best bm25 is the most negative value in the set.
+  let best = 0;
+  for (const r of ranks) {
+    if (r < best) best = r;
+  }
+
+  // Degenerate set (all zero / no usable signal) — no meaningful spread.
+  // Fall back to a flat 1.0 rather than dividing by zero.
+  if (!(best < 0)) return ranks.map(() => 1);
+
+  return ranks.map((r) => {
+    // A non-negative rank is not a valid bm25 result; treat as worst.
+    if (!(r < 0)) return 0;
+    const s = r / best; // both negative -> positive, <= 1
+    return Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0;
+  });
 }
 
 /**
- * Build an FTS5 query string from a text query.
+ * Common English stopwords that carry no retrieval signal.
  *
- * Splits the query into terms and joins with AND for precision.
+ * Queries arrive from natural-language user prompts ("What is the deployment
+ * pipeline canary cap?"), so these appear constantly and must not participate
+ * in matching.
+ *
+ * Deliberately conservative: words that are often *content* in technical
+ * prompts are excluded, even though they are stopwords in prose — "can" (as in
+ * "canary"), "not"/"no" (negations carry the constraint), "use"/"get"/"make"
+ * (the verbs users actually search for), "like", "up", "out", "down", "just".
+ * Dropping those would silently lose real matches.
+ */
+const FTS_STOPWORDS: ReadonlySet<string> = new Set([
+  "a", "an", "and", "any", "are", "as", "at", "be", "been", "but", "by",
+  "could", "did", "do", "does", "for", "from", "had", "has", "have", "he",
+  "her", "here", "him", "his", "how", "i", "if", "in", "into", "is", "it",
+  "its", "me", "more", "my", "of", "on", "or", "our", "over", "please", "she",
+  "should", "so", "some", "such", "than", "that", "the", "their", "them",
+  "then", "there", "these", "they", "this", "those", "to", "too", "us", "very",
+  "was", "we", "were", "what", "when", "where", "which", "who", "why", "will",
+  "with", "would", "you", "your",
+]);
+
+/**
+ * Build candidate FTS5 query strings, most precise first.
+ *
+ * ## Why AND-then-OR
+ *
+ * The query is an entire natural-language user prompt, so pure AND semantics
+ * are unusable: "What is the zorblax deployment pipeline canary cap?" becomes
+ * `"what" AND "is" AND "the" AND ...`, and the stopwords alone make it
+ * unsatisfiable — zero results for essentially every real prompt.
+ *
+ * Pure OR fixes recall but destroys precision on identifier-style queries.
+ * Searching `worker-A` over records `worker-A-0`…`worker-B-49` must return
+ * only the 50 A-records; OR collapses it to `worker` (the trailing `A` is a
+ * stopword) and returns everything.
+ *
+ * So the precise form is attempted first, and the broad form is used only when
+ * the precise one finds nothing. That keeps exact/identifier queries exact
+ * while still retrieving natural-language prompts.
+ *
+ * Each term stays double-quoted so user text can never be FTS5 query syntax.
  *
  * @param query - Raw search query.
- * @returns FTS5-compatible query string.
+ * @returns Candidate FTS5 query strings, highest precision first.
  */
-function buildFtsQuery(query: string): string {
+function buildFtsQueries(query: string): string[] {
   const terms = query
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 0);
 
-  if (terms.length === 0) return '""';
+  if (terms.length === 0) return ['""'];
 
-  // Join terms with AND for precision
-  return terms.map((t) => `"${t}"`).join(" AND ");
+  // Precise: every term must be present. No stopword stripping here — a term
+  // like the trailing "A" in "worker-A" is precisely the discriminating part.
+  const precise = terms.map((t) => `"${t}"`).join(" AND ");
+
+  // Broad fallback: drop stopwords and accept any term.
+  const meaningful = terms.filter((t) => !FTS_STOPWORDS.has(t.toLowerCase()));
+  if (meaningful.length === 0 || meaningful.length === terms.length) {
+    return [precise];
+  }
+
+  const recall = meaningful.map((t) => `"${t}"`).join(" OR ");
+  return [precise, recall];
 }

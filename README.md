@@ -56,6 +56,7 @@ Add the plugin to your `opencode.jsonc`:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `autoCapture` | `true` | Automatically extract facts from conversations |
+| `capturePrompts` | `false` | Also capture **user prompts** (not just assistant text) for extraction. Opt-in: it widens what is persisted |
 | `embedding` | `"auto"` | Embedding strategy: `auto`, `remote`, `ollama`, `local`, `none` |
 | `embeddingKeyEnv` | `"OPENAI_API_KEY"` | Env var for the embedding API key |
 | `dataDir` | `"xdg"` | Data location: `xdg` (XDG_DATA_HOME) or `project` (.opencode/residue/) |

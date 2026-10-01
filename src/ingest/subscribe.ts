@@ -42,6 +42,7 @@
 
 import type { Logger } from "../log.js";
 import type { TurnBuffer } from "./buffer.js";
+import type { PromptBuffer } from "./prompt-buffer.js";
 import type { IngestOptions, IngestDeps } from "./types.js";
 import { extractMemories } from "./extractor.js";
 
@@ -81,6 +82,11 @@ export interface IngestionCtx {
 export interface SubscribeDeps {
   /** Turn buffer for accumulating session text. */
   readonly buffer: TurnBuffer;
+  /**
+   * Optional user-prompt buffer. When omitted, `session.inbox.enqueued`
+   * events are ignored even if `capturePrompts` is enabled.
+   */
+  readonly promptBuffer?: PromptBuffer;
   /** Text generation function. */
   readonly generateText: IngestDeps["generateText"];
   /** Default model getter. */
@@ -165,6 +171,12 @@ export function registerIngestion(
               : undefined;
             deps.buffer.push(sessionID, messageID, delta);
           }
+        } else if (event.type === "session.inbox.enqueued") {
+          // User prompts arrive here — NOT on session.text.delta, which carries
+          // assistant output only. Verified empirically: for an interactive
+          // prompt this event fires with item.type === "user" and the text in
+          // item.payload.text, before the model call begins.
+          handleInboxEnqueued(event.data, deps, options, logger);
         } else if (event.type === "session.idle") {
           // Schedule extraction on next tick — NEVER block the user
           const payload = event.data;
@@ -287,9 +299,35 @@ export function registerIngestion(
       // Insert into store
       let insertedCount = 0;
       for (const draft of extractionResult.drafts) {
+        // Resolve any contradiction BEFORE inserting, while the new record is
+        // not yet searchable. A `contradicts` reference usually shares most of
+        // its terms with the new fact ("...instead of jest"), so looking it up
+        // after the insert would frequently return the superseding record
+        // itself as the top hit.
+        const supersedeTargetId = draft.contradicts
+          ? await resolveContradictionTarget(draft.contradicts, deps, logger)
+          : null;
+
         try {
-          await deps.store.insert(draft);
+          const inserted = await deps.store.insert(draft);
           insertedCount++;
+
+          if (supersedeTargetId !== null && typeof deps.store.supersede === "function") {
+            try {
+              await deps.store.supersede(supersedeTargetId, inserted.id);
+              logger.debug(
+                `[residue] superseded ${supersedeTargetId.slice(0, 12)}... ` +
+                  `with ${inserted.id.slice(0, 12)}...`,
+              );
+            } catch (err) {
+              // A failed supersede must never fail the insert.
+              logger.debug(
+                `[residue] supersede failed (suppressed): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
         } catch (err) {
           logger.debug(
             `[residue] store insert failed (suppressed): ${
@@ -324,6 +362,131 @@ export function registerIngestion(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Handle a `session.inbox.enqueued` event, capturing the user prompt when the
+ * feature is enabled.
+ *
+ * The event payload is `{ sessionID, inboxID, item }` where `item` is a
+ * discriminated union on `item.type`. Only the `"user"` arm carries prompt
+ * text (`item.payload.text`); the `synthetic`, `compaction`, and `move` arms
+ * must be ignored — capturing synthetic messages would feed the plugin's own
+ * output back into memory.
+ *
+ * **Never throws.** A malformed payload is logged and dropped.
+ *
+ * @param payload - Raw event data.
+ * @param deps - Injected dependencies (prompt buffer, options).
+ * @param options - Ingestion configuration.
+ * @param logger - Logger for debug output.
+ */
+function handleInboxEnqueued(
+  payload: unknown,
+  deps: SubscribeDeps,
+  options: IngestOptions,
+  logger: Logger,
+): void {
+  // Gated: prompt capture is opt-in and defaults to off.
+  if (!options.capturePrompts) return;
+  if (deps.promptBuffer === undefined) return;
+
+  try {
+    if (typeof payload !== "object" || payload === null) return;
+    const data = payload as Record<string, unknown>;
+
+    const sessionID = data["sessionID"];
+    const item = data["item"];
+    if (typeof sessionID !== "string" || typeof item !== "object" || item === null) return;
+
+    const itemRec = item as Record<string, unknown>;
+    if (itemRec["type"] !== "user") return; // synthetic/compaction/move are not user prompts
+
+    const payloadField = itemRec["payload"];
+    if (typeof payloadField !== "object" || payloadField === null) return;
+
+    const text = (payloadField as Record<string, unknown>)["text"];
+    if (typeof text !== "string") return;
+
+    const inboxID = typeof data["inboxID"] === "string" ? data["inboxID"] : undefined;
+    const delivery = typeof itemRec["delivery"] === "string" ? itemRec["delivery"] : undefined;
+
+    const retained = deps.promptBuffer.push(sessionID, text, inboxID, delivery);
+    if (retained) {
+      logger.debug(
+        `[residue] prompt captured for ${sessionID.slice(0, 12)} ` +
+          `(${text.length} chars, delivery=${delivery ?? "unknown"})`,
+      );
+    }
+  } catch (err) {
+    logger.debug(
+      `[residue] inbox.enqueued handler error (suppressed): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+/**
+ * Resolve a `contradicts` reference to the ID of the record it supersedes.
+ *
+ * The extraction prompt asks the model for a brief textual reference to the
+ * fact being superseded (`contradicts`). That reference is not a record ID, so
+ * it is resolved by a scoped lexical lookup against the store.
+ *
+ * **Called before the new record is inserted.** A contradiction reference
+ * usually shares most of its terms with the new fact ("...instead of jest"),
+ * so a lookup performed after the insert would frequently rank the
+ * superseding record itself as the top hit. Resolving first removes that
+ * self-match window entirely.
+ *
+ * Deliberately conservative — if the store cannot perform the lookup, or no
+ * prior record matches, the contradiction is dropped rather than guessed at. A
+ * wrong `superseded_by` link would let retention evict a record that is still
+ * current, so a missed supersede is always preferable to a spurious one.
+ *
+ * @param referenceText - Text of the record this draft supersedes.
+ * @param deps - Injected dependencies (store, scope).
+ * @param logger - Logger for debug output.
+ * @returns The ID of the record to supersede, or null when unresolvable.
+ */
+async function resolveContradictionTarget(
+  referenceText: string,
+  deps: SubscribeDeps,
+  logger: Logger,
+): Promise<string | null> {
+  const { store } = deps;
+
+  // Lookup is required to resolve the reference; bail rather than guess.
+  if (typeof store.search !== "function") {
+    logger.debug("[residue] store has no search — contradiction dropped");
+    return null;
+  }
+
+  const trimmed = referenceText.trim();
+  if (trimmed.length === 0) return null;
+
+  // Scope the lookup to this project + worktree so a contradiction can never
+  // resolve to a record from another project.
+  const scope = {
+    where: "scope = 'project' AND project_id = :pid AND worktree_key = :wk",
+    params: {
+      ":pid": deps.resolved.projectID,
+      ":wk": deps.resolved.worktreeKey,
+    },
+  };
+
+  const hits = await store.search(trimmed, null, scope, 5);
+
+  // Skip anything already superseded — re-superseding would orphan a chain.
+  const target = hits.map((h) => h.record).find((r) => r.superseded_by === null);
+
+  if (target === undefined) {
+    logger.debug("[residue] contradicts reference matched no prior record — dropped");
+    return null;
+  }
+
+  return target.id;
+}
 
 /**
  * Extract the session ID from an event payload.
