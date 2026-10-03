@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-10-03
+
+Post-release bump. No code changes — the content is identical to [0.3.0](#030---2026-10-01).
+
+This version exists so the npm version list lines up with the changelog: 0.3.0 was never published (it was tagged and shipped as 0.3.1), so the fixes documented under 0.3.0 are the ones actually on the registry. See the 0.3.0 entry for the full change list.
+
 ## [0.3.0] - 2026-10-01
 
 Context injection was silently broken: under default configuration the plugin retrieved nothing and injected no memories. Three independent defects stacked, any one of which was sufficient. All are fixed and covered by regression tests.
