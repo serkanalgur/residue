@@ -53,8 +53,47 @@ jobs:
           echo "Setting version to: $VERSION"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+      # `npm publish` defaults to the "latest" dist-tag, which would promote a
+      # prerelease (1.0.0-rc.1, 1.0.0-beta.2) to the version everyone installs by
+      # default. Derive the dist-tag from the version instead:
+      #   stable (1.2.3)            -> latest
+      #   prerelease (1.2.3-rc.1)    -> next
+      #   prerelease (1.2.3-beta.1)  -> beta
+      #   prerelease (1.2.3-alpha.1) -> alpha
+      #   prerelease (1.2.3-canary.1)-> canary
+      # Anything unrecognised fails the run rather than silently shipping to
+      # `latest` by mistake.
+      - name: Resolve npm dist-tag
+        id: dist
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Resolving dist-tag for version: $VERSION"
+
+          # Strip build metadata; it must not influence tag selection.
+          BASE=${VERSION%%+*}
+          PRERELEASE=${BASE#*-}
+
+          if [ "$BASE" = "$PRERELEASE" ]; then
+            TAG=latest                       # no hyphen -> stable release
+          else
+            case "$PRERELEASE" in
+              rc*)     TAG=next   ;;
+              beta*)   TAG=beta   ;;
+              alpha*)  TAG=alpha  ;;
+              canary*) TAG=canary ;;
+              *)
+                echo "::error::Unrecognised prerelease identifier '$PRERELEASE' in version $VERSION. Add it to the case statement in publish.yml or publish as a stable release."
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "Publishing $VERSION under dist-tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       # package.json already has publishConfig.access: "public".
       # No --provenance flag needed — OIDC trusted publishing produces
       # provenance automatically.
       - name: Publish package
-        run: npm publish
+        run: npm publish --tag "${{ steps.dist.outputs.tag }}"
