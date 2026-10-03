@@ -101,6 +101,81 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 The test suite must pass consistently. Please verify your changes pass on **5 consecutive runs** with no flaky tests before submitting a PR. This project has a history of intermittent test failures, and we treat flaky tests as blocking bugs.
 
+## Releasing
+
+Releases are triggered by pushing a `v*` git tag. The publish workflow
+(`.github/workflows/publish.yml`) takes the version from the tag, runs the full
+test suite, and publishes to npm.
+
+### Before you tag
+
+1. Land your changes on `main`.
+2. Bump the version in `package.json` and add a `CHANGELOG.md` entry:
+   ```bash
+   npm version patch   # or: minor, or 0.4.0-rc.1 for a prerelease
+   ```
+   The version must live **only** in `package.json` — a test enforces that no
+   source file hardcodes it.
+3. Confirm the release gates pass locally:
+   ```bash
+   bun run typecheck && bun run lint && bun test
+   ```
+
+### Publishing
+
+```bash
+git tag v0.3.1
+git push origin main --tags
+```
+
+The workflow derives the version from the tag
+(`npm version "$VERSION" --no-git-tag-version`), so the tag and `package.json`
+are always in sync.
+
+Authentication uses **OIDC trusted publishing** — there is no npm token secret.
+The first release from a new workflow run may need to be approved once in the
+npm web UI.
+
+### Version → dist-tag mapping
+
+`npm publish` defaults to the `latest` dist-tag, which is what `npm install`
+resolves by default. The workflow therefore derives the dist-tag from the
+version:
+
+| Version | dist-tag | Installed by `npm install @serkanalgur/residue` |
+| --- | --- | --- |
+| `1.2.3` | `latest` | ✅ yes |
+| `1.2.3-rc.1` | `next` | ❌ no |
+| `1.2.3-beta.1` | `beta` | ❌ no |
+| `1.2.3-alpha.1` | `alpha` | ❌ no |
+| `1.2.3-canary.1` | `canary` | ❌ no |
+
+Prereleases are intentionally kept off `latest`, so `npm install` never hands a
+user a `-rc` or `-beta` build by accident. Users opt in explicitly:
+
+```bash
+npm install @serkanalgur/residue@next
+```
+
+### Unknown prerelease identifiers fail the run
+
+Only the identifiers in the table above are recognised. A version with any other
+prerelease suffix — `1.2.3-preview.1`, `1.2.3-test.4` — **fails the publish run**
+with an explicit error instead of falling back to `latest`:
+
+```
+Unrecognised prerelease identifier 'preview' in version 1.2.3-preview.1.
+Add it to the case statement in publish.yml or publish as a stable release.
+```
+
+This is deliberate. Silently defaulting to `latest` would promote an unreviewed
+build to the default version for every consumer, which is far worse than a
+failed release. If you genuinely need a new channel, add it to the `case`
+statement in `.github/workflows/publish.yml` and document it in the table above.
+
+Build metadata does not affect the mapping: `1.0.0+build.7` is treated as stable
+(`latest`), because semver build metadata does not change precedence.
+
 ## Reporting Issues
 
 If you find a bug or have a feature request, please open an issue on GitHub with:
