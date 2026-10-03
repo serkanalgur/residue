@@ -18,9 +18,14 @@ Context injection was silently broken: under default configuration the plugin re
 
 ### Added
 
-- **Root `index.ts` path-plugin entrypoint** — opencode resolves a local directory plugin to `<dir>/index.*` and never reads `package.json` `main`, so residue could not be loaded as a path plugin without a wrapper. The new root entry re-exports `src/index.ts` and is covered by the `files` allowlist so it is present in the published tarball. A `.ts` entry is supported; a JS entry is not required.
+- **Root `index.ts` path-plugin entrypoint** — opencode resolves a local directory plugin to `<dir>/index.*` and never reads `package.json` `main`, so residue could not be loaded as a path plugin without a wrapper. The new root entry re-exports `src/index.ts` and is listed in the `files` allowlist, so **the published package ships it** — `npm pack` confirms a 42B `index.ts` in the tarball. A `.ts` entry is supported; a JS entry is not required.
 - **`capturePrompts` option (default `false`)** — opt-in capture of user prompts in addition to assistant text, sourced from `session.inbox.enqueued` (`item.type === "user"`). Off by default because it widens what the plugin persists.
 - **Regression coverage** — `test/fts-query.test.ts`, `test/rrf-minscore.test.ts`, `test/contradicts.test.ts`, `test/prompt-capture.test.ts`, and entrypoint-allowlist assertions in `test/package-meta.test.ts`.
+
+### Requirements
+
+- **npm v10.9 or newer is required to publish this package.** Releases are published from GitHub Actions via [OIDC trusted publishing](https://docs.npmjs.com/trusted-publishers), and npm only supports OIDC-based provenance from v10.9 onward. The publish workflow upgrades npm explicitly (`npm install -g npm@latest`) before running `npm publish`. This affects **maintainers publishing the package**, not consumers installing it — no npm tooling is needed to use residue.
+- Consumers need no build step: the package ships raw `.ts` source and is consumed by OpenCode's Bun/TypeScript-native runtime.
 
 ### Known limitations
 
