@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-10-03
+
+### Changed
+
+- **`actions/checkout` and `actions/setup-node` bumped v4 → v7** in both workflows. The v4 pins targeted a Node 20 runtime, which GitHub now forces onto Node 24 with a deprecation warning on every run. No runtime or behaviour change for consumers.
+
+### Added
+
+- **Release process documented** in `CONTRIBUTING.md` — pre-tag checklist, the tag-push trigger, the full version → dist-tag table, and why an unrecognised prerelease identifier fails the publish run instead of defaulting to `latest`.
+- **A `## [0.3.1]` changelog entry**, recording that 0.3.0 was never published (it shipped as 0.3.1) so the npm version list lines up with the changelog.
+
+### Fixed
+
+- The published package now ships the root `index.ts` entrypoint in tarballs after 0.3.1 — the changelog and CI workflow fixes in this release were committed after the `v0.3.1` tag, and npm tarballs are immutable.
+
 ## [0.3.1] - 2026-10-03
 
 Post-release bump. No code changes — the content is identical to [0.3.0](#030---2026-10-01).
